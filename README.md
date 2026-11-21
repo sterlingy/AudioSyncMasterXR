@@ -5,7 +5,15 @@ Multiplayer XR jam sessions: remote musicians hear each other in sync with spati
 Godot 4.7.2 (GL Compatibility). Synths run in C++ in the `jamcore` GDExtension.
 
 ## Status
-**M1 (synth engine and instruments): done on Windows desktop.** Six instruments with full panels, 48 factory presets, user presets, share codes, MIDI input (USB, Android USB/BLE, Wi-Fi relay) with MIDI learn, on-screen keys and drum pads, Tangle patch editor. Headset steps wait in `docs/TODO-headset.md`.
+- **M1 synths: done** (Windows). Six instruments with full panels, 48 factory presets, user presets, share codes, MIDI input (USB, Android USB/BLE, Wi-Fi relay) with MIDI learn, on-screen keys and drum pads, Tangle patch editor.
+- **M2 clock, metronome, sequencers, quantize: done locally.** Network clock sync arrives with M4.
+- **M3 loopers: done locally** for virtual instruments (event loops). Audio loops for real instruments arrive with the audio path in M4; master-looper sharing too.
+- **Android:** arm64 engine builds; `build/android/AudioSyncMaster.apk` (flat, debug) exports with the MIDI plugin. Untested on a device.
+- Headset steps wait in `docs/TODO-headset.md`.
+
+Keys: Space = play/stop, R = looper record/overdub.
+
+Rebuilding the Android export needs the gradle template: `godot --headless --install-android-build-template --export-debug "Android (flat)" build/android/AudioSyncMaster.apk` (the generated `android/` folder is git-ignored).
 
 | Instrument | Role | Notes |
 |---|---|---|
