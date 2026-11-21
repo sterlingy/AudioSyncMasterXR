@@ -37,8 +37,11 @@ func test_note_packet_round_trip() -> void:
 	assert_eq(e.a, 61)
 	assert_almost_eq(e.value, 0.75, 1e-6)
 	assert_eq(e.t, 1234.5678)
-	assert_eq(e.beat, 16.5)
-	assert_true(is_nan(Session.unpack(Session.pack(1, Session.Ev.OFF, 1, 0.0, 1.0)).beat))
+	assert_eq(e.at, 16.5)
+	assert_true(is_nan(Session.unpack(Session.pack(1, Session.Ev.OFF, 1, 0.0, 1.0)).at))
+	if ClassDB.class_exists("JamAudioLink"):
+		assert_eq(ClassDB.class_call_static("JamAudioLink", "pack_event", 7, Session.Ev.ON, 61, 0.75, 1234.5678, 16.5), b,
+			"native and script packets are identical")
 	b[0] = 0
 	assert_true(Session.unpack(b).is_empty(), "foreign packets are ignored")
 
@@ -124,3 +127,39 @@ func test_tangle_knob_moves_do_not_rebuild_the_patch() -> void:
 	assert_eq(memo.patch_sig, sig, "same modules and cables")
 	assert_almost_eq(rig.synth.tangle_get_param(int(m.id), pid), v, 1e-5)
 	assert_eq(rig.synth.tangle_get_patch().cables.size(), src.tangle_get_patch().cables.size())
+
+
+func _onset(buf: PackedVector2Array, threshold := 0.05) -> int:
+	for i in buf.size():
+		if absf(buf[i].x) > threshold:
+			return i
+	return -1
+
+
+func test_native_notes_land_on_their_frame() -> void:
+	if not ClassDB.class_exists("JamAudioLink"):
+		pass_test("jamcore built without AOO")
+		return
+	var a: Object = ClassDB.instantiate("JamAudioLink")
+	var b: Object = ClassDB.instantiate("JamAudioLink")
+	assert_eq(a.start(0, 101), OK)
+	assert_eq(b.start(0, 202), OK)
+	a.add_peer(202, "127.0.0.1", b.get_port())
+	b.add_peer(101, "127.0.0.1", a.get_port())
+	a.set_clock(0.0, 0.0)
+	b.set_clock(0.0, 0.0)
+	var synth := JamSynth.new()
+	synth.instrument = "Pulsar"
+	var t0 := JamSynth.get_time()
+	synth.set_clock_anchor(t0, 0)
+	a.route_notes(202, synth)
+	# A live-quantized note meant to sound 100 ms from now: lands on that frame.
+	b.send_event(Session.Ev.ON, 36, 1.0, t0 + 0.1)
+	b.send_event(Session.Ev.OFF, 36, 0.0, NAN)
+	await wait_seconds(0.05)
+	var st: Dictionary = a.get_peer_stats(202)
+	assert_eq(int(st.notes), 1)
+	var on := _onset(synth.render_offline(SR / 4))
+	assert_almost_eq(float(on), 0.1 * SR, 2.0, "onset at the requested time (frame %d)" % on)
+	a.stop()
+	b.stop()

@@ -28,6 +28,7 @@
 #include <thread>
 #include <vector>
 
+#include "engine/synth_core.h"
 #include "aoo/aoo_sink.hpp"
 #include "aoo/aoo_source.hpp"
 
@@ -42,6 +43,17 @@ struct JamPeerAudio {
 	std::atomic<double> rtt{-1.0};
 	std::atomic<float> loss{0.0f};
 	std::atomic<bool> streaming{false};
+
+	// Live notes (network thread only, except the atomics).
+	std::shared_ptr<jam::SynthCore> core; // their instrument here; set via route_notes()
+	float lateness[64] = {};
+	int late_count = 0, late_pos = 0;
+	float shift[256] = {}; // per note: how much later than stamp+delay its note-on was placed
+	std::atomic<double> delay{0.0};
+	std::atomic<double> last_late{0.0};
+	std::atomic<double> note_rtt{-1.0};
+	std::atomic<int> notes{0};
+	std::atomic<bool> direct_in{false}, direct_out{false};
 };
 
 class JamNetStreamPlayback : public AudioStreamPlayback {
@@ -104,6 +116,15 @@ class JamAudioLink : public RefCounted {
 	int block_size = 128;
 	double capture_period_ms = 0.0;
 
+	// Live notes: 30-byte packets (same layout as Session.pack) on the audio socket.
+	std::atomic<double> clock_offset{0.0}; // Transport.clock_offset
+	std::atomic<double> out_latency{0.0};
+	std::atomic<bool> steady{true};
+	double next_hello = 0.0;
+	double shared_now() const { return jam::mono_seconds() + clock_offset.load(std::memory_order_relaxed); }
+	void handle_note_packet(const uint8_t *b, int n, const sockaddr_in &from);
+	void send_hellos();
+
 	void net_loop();
 	void setup_source(int sample_rate);
 	void apply_format();
@@ -148,6 +169,12 @@ public:
 	void set_codec(const String &name, int bitrate);
 	String get_codec() const { return codec; }
 	void set_block_size(int frames);
+
+	void route_notes(int peer_id, Object *synth);
+	void set_clock(double offset, double output_latency);
+	void set_steady_timing(bool on) { steady = on; }
+	void send_event(int type, int a, float value, double at);
+	static PackedByteArray pack_event(int sender, int type, int a, float value, double t, double at);
 	int get_block_size() const { return block_size; }
 };
 

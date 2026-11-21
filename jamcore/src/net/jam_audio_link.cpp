@@ -1,5 +1,6 @@
 #include "jam_audio_link.h"
 
+#include "jam_synth.h"
 #include "aoo/aoo.h"
 #include "aoo/aoo_events.h"
 #include "aoo/codec/aoo_opus.h"
@@ -14,6 +15,19 @@ using namespace godot;
 
 namespace {
 constexpr int MAX_BLOCK = 4096;
+constexpr uint32_t NOTE_MAGIC = 0x314E5341; // "ASN1", as in session.gd
+constexpr int NOTE_PKT = 30;
+constexpr double MAX_NOTE_DELAY = 0.08;
+enum { EVN_ON = 0, EVN_OFF, EVN_CC, EVN_BEND, EVN_HELLO, EVN_ACK };
+
+template <class T>
+void wr(uint8_t *b, int off, T v) { memcpy(b + off, &v, sizeof(T)); }
+template <class T>
+T rd(const uint8_t *b, int off) {
+	T v;
+	memcpy(&v, b + off, sizeof(T));
+	return v;
+}
 
 // AOO's log goes to Godot's verbose output (run with --verbose to see it):
 // it reports routine stream start/stop races as errors.
@@ -187,6 +201,12 @@ Dictionary JamAudioLink::get_peer_stats(int peer_id) {
 	d["underruns"] = p->underruns.load();
 	d["peak"] = p->peak.exchange(0.0f);
 	d["latency_ms"] = latency_ms;
+	d["notes"] = p->notes.load();
+	d["note_delay_ms"] = p->delay.load() * 1000.0;
+	d["last_late_ms"] = p->last_late.load() * 1000.0;
+	d["note_rtt_ms"] = p->note_rtt.load() * 1000.0;
+	d["direct_in"] = p->direct_in.load();
+	d["direct_out"] = p->direct_out.load();
 	if (p->sink) {
 		double fill = 0.0;
 		AooEndpoint ep{&p->addr, (AooAddrSize)sizeof(p->addr), peer_id};
@@ -231,13 +251,135 @@ AooInt32 AOO_CALL JamAudioLink::send_fn(void *user, const AooByte *data, AooInt3
 	return ((JamAudioLink *)user)->sock.send(data, size, address, (int)addrlen);
 }
 
+// ---- Live notes
+
+PackedByteArray JamAudioLink::pack_event(int sender, int type, int a, float value, double t, double at) {
+	PackedByteArray b;
+	b.resize(NOTE_PKT);
+	uint8_t *p = b.ptrw();
+	wr<uint32_t>(p, 0, NOTE_MAGIC);
+	wr<uint32_t>(p, 4, (uint32_t)sender);
+	p[8] = (uint8_t)type;
+	p[9] = (uint8_t)(a & 0xff);
+	wr<float>(p, 10, value);
+	wr<double>(p, 14, t);
+	wr<double>(p, 22, at);
+	return b;
+}
+
+void JamAudioLink::route_notes(int peer_id, Object *synth) {
+	JamSynth *js = Object::cast_to<JamSynth>(synth);
+	std::lock_guard<std::mutex> lock(peers_mutex);
+	auto it = peers.find(peer_id);
+	if (it != peers.end()) it->second->core = js ? js->get_core() : nullptr;
+}
+
+void JamAudioLink::set_clock(double offset, double output_latency) {
+	clock_offset = offset;
+	out_latency = output_latency;
+}
+
+void JamAudioLink::send_event(int type, int a, float value, double at) {
+	if (!running.load()) return;
+	PackedByteArray pkt = pack_event(my_id, type, a, value, shared_now(), at);
+	std::lock_guard<std::mutex> lock(peers_mutex);
+	for (auto &kv : peers) sock.send(pkt.ptr(), NOTE_PKT, &kv.second->addr, sizeof(sockaddr_in));
+}
+
+void JamAudioLink::send_hellos() {
+	PackedByteArray pkt = pack_event(my_id, EVN_HELLO, 0, 0.0f, shared_now(), NAN);
+	std::lock_guard<std::mutex> lock(peers_mutex);
+	for (auto &kv : peers) sock.send(pkt.ptr(), NOTE_PKT, &kv.second->addr, sizeof(sockaddr_in));
+}
+
+// Network thread. Plays a remote player's note at its stamp + that player's
+// delay (95th percentile of recent lateness + 2 ms), straight into their
+// synth's network queue: no game frame in between.
+void JamAudioLink::handle_note_packet(const uint8_t *b, int n, const sockaddr_in &from) {
+	if (n != NOTE_PKT || rd<uint32_t>(b, 0) != NOTE_MAGIC) return;
+	const int sender = (int)rd<uint32_t>(b, 4);
+	const int type = b[8], a = b[9];
+	const float value = rd<float>(b, 10);
+	const double t = rd<double>(b, 14), at = rd<double>(b, 22);
+	std::lock_guard<std::mutex> lock(peers_mutex);
+	auto it = peers.find(sender);
+	if (it == peers.end()) return;
+	JamPeerAudio &p = *it->second;
+	const double now = shared_now();
+	if (type == EVN_HELLO) {
+		p.direct_in = true;
+		PackedByteArray ack = pack_event(my_id, EVN_ACK, 0, 0.0f, t, NAN);
+		sock.send(ack.ptr(), NOTE_PKT, &from, sizeof(from));
+		return;
+	}
+	if (type == EVN_ACK) {
+		p.direct_out = true;
+		p.note_rtt = now - t;
+		return;
+	}
+	if (!p.core) return;
+	const double late = now - t;
+	p.last_late = late;
+	if (type == EVN_ON) {
+		p.notes.fetch_add(1);
+		p.lateness[p.late_pos] = (float)late;
+		p.late_pos = (p.late_pos + 1) % 64;
+		p.late_count = std::min(p.late_count + 1, 64);
+		float tmp[64];
+		memcpy(tmp, p.lateness, sizeof(float) * p.late_count);
+		const int k = (int)(0.95 * (p.late_count - 1));
+		std::nth_element(tmp, tmp + k, tmp + p.late_count);
+		p.delay = std::clamp((double)tmp[k] + 0.002, 0.0, MAX_NOTE_DELAY);
+	}
+	const double when = t + (steady.load() ? p.delay.load() : 0.0);
+	double target = when;
+	jam::Event e;
+	switch (type) {
+		case EVN_ON:
+			if (!std::isnan(at)) target = std::max(when, at - out_latency.load());
+			p.shift[a] = (float)(target - when);
+			e.type = jam::EV_NOTE_ON;
+			e.a = a;
+			e.value = value;
+			break;
+		case EVN_OFF:
+			target = when + p.shift[a];
+			p.shift[a] = 0.0f;
+			e.type = jam::EV_NOTE_OFF;
+			e.a = a;
+			break;
+		case EVN_CC:
+			e.type = jam::EV_CC;
+			e.a = a;
+			e.value = value;
+			break;
+		case EVN_BEND:
+			e.type = jam::EV_BEND;
+			e.value = value;
+			break;
+		default:
+			return;
+	}
+	e.frame = target <= now ? -1 : p.core->time_to_frame(target - clock_offset.load());
+	p.core->push_net(e);
+}
+
 void JamAudioLink::net_loop() {
 	std::vector<uint8_t> buf(AOO_MAX_PACKET_SIZE + 64);
 	while (running.load()) {
+		const double mono = jam::mono_seconds();
+		if (mono >= next_hello) {
+			next_hello = mono + 1.0;
+			send_hellos();
+		}
 		if (sock.wait(1)) {
 			sockaddr_in from{};
 			int n;
 			while ((n = sock.recv(buf.data(), (int)buf.size(), from)) > 0) {
+				if (n == NOTE_PKT && rd<uint32_t>(buf.data(), 0) == NOTE_MAGIC) {
+					handle_note_packet(buf.data(), n, from);
+					continue;
+				}
 				AooMsgType type;
 				AooId id;
 				AooInt32 offset;
@@ -378,5 +520,10 @@ void JamAudioLink::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_codec", "name", "bitrate"), &JamAudioLink::set_codec, DEFVAL(128000));
 	ClassDB::bind_method(D_METHOD("get_codec"), &JamAudioLink::get_codec);
 	ClassDB::bind_method(D_METHOD("set_block_size", "frames"), &JamAudioLink::set_block_size);
+	ClassDB::bind_method(D_METHOD("route_notes", "peer_id", "synth"), &JamAudioLink::route_notes);
+	ClassDB::bind_method(D_METHOD("set_clock", "offset", "output_latency"), &JamAudioLink::set_clock);
+	ClassDB::bind_method(D_METHOD("set_steady_timing", "on"), &JamAudioLink::set_steady_timing);
+	ClassDB::bind_method(D_METHOD("send_event", "type", "a", "value", "at"), &JamAudioLink::send_event);
+	ClassDB::bind_static_method("JamAudioLink", D_METHOD("pack_event", "sender", "type", "a", "value", "t", "at"), &JamAudioLink::pack_event);
 	ClassDB::bind_method(D_METHOD("get_block_size"), &JamAudioLink::get_block_size);
 }

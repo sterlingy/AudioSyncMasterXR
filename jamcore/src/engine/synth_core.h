@@ -56,6 +56,9 @@ public:
 		collect_garbage();
 		return queue.push(e);
 	}
+	// Network thread (the only producer of this queue): live notes from a
+	// remote player, scheduled at their frame without waiting for a game frame.
+	bool push_net(const Event &e) { return net_queue.push(e); }
 	void collect_garbage() {
 		Instrument *g;
 		while (garbage.pop(g)) delete g;
@@ -194,6 +197,10 @@ private:
 			if (npending < MAX_PENDING) pending[npending++] = e;
 			else apply(e); // overflow: play it now rather than drop it
 		}
+		while (net_queue.pop(e)) {
+			if (npending < MAX_PENDING) pending[npending++] = e;
+			else apply(e);
+		}
 	}
 	void apply(const Event &e) {
 		switch (e.type) {
@@ -221,6 +228,7 @@ private:
 	Instrument *inst = nullptr;
 	float tempo = 120.0f;
 	SpscQueue<Event, 8192> queue;
+	SpscQueue<Event, 1024> net_queue;
 	SpscQueue<Instrument *, 64> garbage;
 	Event pending[MAX_PENDING];
 	int npending = 0;

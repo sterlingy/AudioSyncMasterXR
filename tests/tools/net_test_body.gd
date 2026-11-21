@@ -109,14 +109,18 @@ func _host() -> void:
 	check(absf(r.anchor_time - Transport.anchor_time) < 1e-6 and r.running, "client follows the host's tempo map")
 	check(p.instrument == "Comet" and rrig.instrument == "Comet", "client's instrument mirrored")
 	check(p.direct_out and p.direct_in, "direct UDP both ways")
-	check(Session.notes_received == NOTES, "live notes received (%d/%d)" % [Session.notes_received, NOTES])
+	check(Session.total_notes_received() == NOTES, "live notes received (%d/%d)" % [Session.total_notes_received(), NOTES])
+	if Session.audio:
+		var ns: Dictionary = Session.audio.get_peer_stats(client_id)
+		print("  notes (native thread): last arrived %.2f ms after it was played; steady delay %.2f ms; ping %.2f ms" % [ns.last_late_ms, ns.note_delay_ms, ns.note_rtt_ms])
+		check(ns.note_delay_ms < 6.0, "native note delay under 6 ms on loopback")
 	var lat: Array = p.lateness
 	if not lat.is_empty():
 		var mx: float = lat.max()
 		var sum := 0.0
 		for x in lat:
 			sum += x
-		print("  notes: arrival lateness mean %.1f ms, max %.1f ms; steady delay %.1f ms" % [sum / lat.size() * 1000.0, mx * 1000.0, Session.delay_from(lat) * 1000.0])
+		print("  notes (script path): arrival lateness mean %.1f ms, max %.1f ms" % [sum / lat.size() * 1000.0, mx * 1000.0])
 	check(absf(rrig.synth.get_param(r.param_id) - r.param_value) < 1e-4, "parameter change mirrored")
 	check(rrig.sequencer.has_note(0, 72), "sequencer edit mirrored")
 	var mine := MasterLooper.layers.filter(func(l): return l.owner == str(client_id))

@@ -10,7 +10,12 @@ extends Node
 ##   Sequencers and loops are then played on every client from the shared
 ##   clock, sample-accurately, so they add no network delay at all.
 ## - **Live notes** straight from player to player over UDP (no relay hop),
-##   30-byte packets stamped with the shared-clock time they were played.
+##   30-byte packets stamped with the shared-clock time they were played
+##   (and, for live-quantized notes, the shared-clock time they should sound).
+##   With the audio link (jamcore built with AOO) they travel on its socket
+##   and are scheduled on its network thread straight into the remote
+##   player's synth, so game frames never delay them. Without it, this
+##   script's own UDP socket and _process do the same job.
 ##   The receiver plays each note at stamp + that sender's delay, where the
 ##   delay covers the 95th percentile of how late notes have arrived (network
 ##   plus frame polling), so timing between notes stays steady. With
@@ -574,7 +579,7 @@ func _on_local_played(e: Dictionary) -> void:
 		return
 	match e.type:
 		"on":
-			_send_event(Ev.ON, e.note, e.velocity, e.beat if e.get("quantized", false) else NAN)
+			_send_event(Ev.ON, e.note, e.velocity, Transport.time_at(e.beat) if e.get("quantized", false) else NAN)
 		"off":
 			_send_event(Ev.OFF, e.note, 0.0)
 		"cc":
@@ -585,7 +590,7 @@ func _on_local_played(e: Dictionary) -> void:
 			rpc("_param", e.id, e.value)
 
 
-static func pack(sender: int, type: int, a: int, value: float, t: float, beat := NAN) -> PackedByteArray:
+static func pack(sender: int, type: int, a: int, value: float, t: float, at := NAN) -> PackedByteArray:
 	var b := PackedByteArray()
 	b.resize(PKT_SIZE)
 	b.encode_u32(0, MAGIC)
@@ -594,7 +599,7 @@ static func pack(sender: int, type: int, a: int, value: float, t: float, beat :=
 	b[9] = a & 0xff
 	b.encode_float(10, value)
 	b.encode_double(14, t)
-	b.encode_double(22, beat)
+	b.encode_double(22, at)
 	return b
 
 
@@ -602,16 +607,21 @@ static func unpack(b: PackedByteArray) -> Dictionary:
 	if b.size() != PKT_SIZE or b.decode_u32(0) != MAGIC:
 		return {}
 	return {"from": b.decode_u32(4), "type": b[8], "a": b[9], "value": b.decode_float(10),
-		"t": b.decode_double(14), "beat": b.decode_double(22)}
+		"t": b.decode_double(14), "at": b.decode_double(22)}
 
 
-func _send_event(type: int, a: int, value: float, beat := NAN) -> void:
-	var pkt := pack(my_id(), type, a, value, Transport.now(), beat)
+func _send_event(type: int, a: int, value: float, at := NAN) -> void:
+	if audio:
+		audio.send_event(type, a, value, at) # straight to every peer from the native socket
+	var pkt := pack(my_id(), type, a, value, Transport.now(), at)
 	for id in players:
 		var p: Dictionary = players[id]
 		if id == my_id():
 			continue
-		if p.direct_out:
+		if audio:
+			if not p.direct_out:
+				rpc_id(id, "_relay", pkt)
+		elif p.direct_out:
 			_udp.set_dest_address(p.ip, p.udp_port)
 			_udp.put_packet(pkt)
 		else:
@@ -676,8 +686,8 @@ func _play_remote(p: Dictionary, e: Dictionary) -> void:
 			if p.lateness.size() > 64:
 				p.lateness.pop_front()
 			var target := when
-			if not is_nan(e.beat) and Transport.running:
-				target = maxf(when, Transport.time_at(e.beat) - AudioServer.get_output_latency())
+			if not is_nan(e.at):
+				target = maxf(when, e.at - AudioServer.get_output_latency())
 			p.shift[e.a] = target - when
 			rig.synth.note_on(e.a, e.value, _frame(rig, target, now))
 		Ev.OFF:
@@ -733,11 +743,22 @@ func _process(delta: float) -> void:
 		_link.host_offset = Transport.clock_offset
 		for smp in _link.take_samples():
 			_clock_sample(smp[0], smp[1], smp[2])
+	if audio:
+		audio.set_clock(Transport.clock_offset, AudioServer.get_output_latency())
+		audio.set_steady_timing(steady_timing)
 	_t_hello -= delta
 	if _t_hello <= 0.0:
-		_t_hello = 1.0
+		_t_hello = 0.5
 		for id in players:
 			var p: Dictionary = players[id]
+			if audio and p.has("rig"):
+				var st: Dictionary = audio.get_peer_stats(id)
+				if not st.is_empty():
+					p.direct_in = st.direct_in
+					p.direct_out = st.direct_out
+					p.rtt = st.note_rtt_ms / 1000.0
+					p.native = st
+				continue
 			if p.has("rig") and p.udp_port > 0 and p.ip != "":
 				_udp.set_dest_address(p.ip, p.udp_port)
 				_udp.put_packet(pack(my_id(), Ev.HELLO, 0, 0.0, Transport.now()))
@@ -781,6 +802,7 @@ func _connect_audio(p: Dictionary) -> void:
 		add_child(p.voice)
 	p.voice.stream = audio.get_peer_stream(p.id)
 	p.voice.play()
+	audio.route_notes(p.id, p.rig.synth)
 	_update_audibility()
 
 
@@ -829,13 +851,28 @@ func clock_text() -> String:
 	return "to within 0.1 ms" if e < 0.1 else "to ±%.1f ms" % e
 
 
+## Live notes received from all players (native path + script path).
+func total_notes_received() -> int:
+	var n := notes_received
+	if audio:
+		for id in players:
+			if players[id].has("rig"):
+				n += int(audio.get_peer_stats(id).get("notes", 0))
+	return n
+
+
 ## One line per remote player for the latency display.
 func latency_text(p: Dictionary) -> String:
 	if not p.has("rig"):
 		return "you" + (" (host)" if is_host() else "")
 	var parts := []
 	parts.append("ping %s" % ("%.1f ms" % (p.rtt * 1000.0) if p.rtt >= 0.0 else "…"))
-	var ear: float = (p.delay if steady_timing else maxf(p.last_late, 0.0)) + AudioServer.get_output_latency()
+	var delay: float = p.delay
+	var last: float = p.last_late
+	if p.has("native"):
+		delay = p.native.note_delay_ms / 1000.0
+		last = p.native.last_late_ms / 1000.0
+	var ear: float = (delay if steady_timing else maxf(last, 0.0)) + AudioServer.get_output_latency()
 	parts.append("notes reach you in %.0f ms" % (ear * 1000.0))
 	if not p.direct_out:
 		parts.append("via host")
