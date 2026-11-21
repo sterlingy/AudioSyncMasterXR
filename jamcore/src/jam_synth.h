@@ -22,7 +22,8 @@ class JamSynthPlayback : public AudioStreamPlayback {
 
 	std::shared_ptr<jam::SynthCore> core;
 	bool playing = false;
-	bool owner = false; // only one playback renders a core at a time
+	bool counted = false; // counted in core->active_playbacks
+	uint32_t token = 0; // the newest started playback owns the core
 
 protected:
 	static void _bind_methods() {}

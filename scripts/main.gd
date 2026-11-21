@@ -1,0 +1,323 @@
+extends Control
+## Flat (desktop) front end: pick an instrument and preset, tweak the panel,
+## play from MIDI, the computer keyboard or the on-screen keys.
+##
+## Dev: `-- --shot=<path> [--instrument=Name] [--frames=N]` saves a screenshot and quits.
+
+var rig: InstrumentRig
+var panel: SynthPanel
+var tangle: TangleEditor
+var keys: KeyboardView
+
+var _inst_select: OptionButton
+var _preset_select: OptionButton
+var _status: Label
+var _meter: ProgressBar
+var _cpu: Label
+var _tempo: SpinBox
+var _add_module: MenuButton
+var _presets: Array[Dictionary] = []
+var _share_dialog: AcceptDialog
+var _share_text: TextEdit
+var _save_dialog: ConfirmationDialog
+var _save_name: LineEdit
+var _shot_path := ""
+var _shot_frames := 45
+
+
+func _ready() -> void:
+	var bg := ColorRect.new()
+	bg.color = Color(0.07, 0.075, 0.09)
+	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
+	add_child(bg)
+
+	rig = InstrumentRig.new()
+	rig.name = "LocalInstrument"
+	rig.instrument = String(Settings.get_value("instrument"))
+	add_child(rig)
+
+	var root := VBoxContainer.new()
+	root.set_anchors_preset(Control.PRESET_FULL_RECT)
+	root.add_theme_constant_override("separation", 8)
+	var margin := MarginContainer.new()
+	margin.set_anchors_preset(Control.PRESET_FULL_RECT)
+	for side in ["left", "right", "top", "bottom"]:
+		margin.add_theme_constant_override("margin_" + side, 12)
+	add_child(margin)
+	margin.add_child(root)
+
+	root.add_child(_build_top_bar())
+	var body := Control.new()
+	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
+	root.add_child(body)
+	panel = SynthPanel.new()
+	panel.set_anchors_preset(Control.PRESET_FULL_RECT)
+	body.add_child(panel)
+	panel.bind(rig)
+	tangle = TangleEditor.new()
+	tangle.set_anchors_preset(Control.PRESET_FULL_RECT)
+	body.add_child(tangle)
+
+	keys = KeyboardView.new()
+	keys.custom_minimum_size.y = 130
+	root.add_child(keys)
+	_status = Label.new()
+	_status.add_theme_font_size_override("font_size", 12)
+	_status.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
+	root.add_child(_status)
+
+	_build_dialogs()
+	rig.instrument_changed.connect(func(_t): _on_instrument_changed())
+	rig.preset_changed.connect(func(_p): _sync_preset_select())
+	rig.learn_changed.connect(func(id): _update_status("Move a knob or slider on your MIDI controller to map it to %s" % id if id != "" else ""))
+	Midi.devices_changed.connect(func(_d): _update_status())
+	_on_instrument_changed()
+	_update_status()
+	_parse_dev_args()
+
+
+func _build_top_bar() -> Control:
+	var bar := HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 8)
+	var title := Label.new()
+	title.text = "AudioSyncMaster"
+	title.add_theme_font_size_override("font_size", 18)
+	bar.add_child(title)
+	bar.add_child(VSeparator.new())
+
+	_inst_select = OptionButton.new()
+	for t in JamSynth.get_instrument_types():
+		_inst_select.add_item(t)
+	_inst_select.item_selected.connect(func(i):
+		var t := _inst_select.get_item_text(i)
+		Settings.set_value("instrument", t)
+		rig.set_instrument(t))
+	bar.add_child(_inst_select)
+
+	var prev := Button.new()
+	prev.text = "◀"
+	prev.tooltip_text = "Previous preset"
+	prev.pressed.connect(func(): _step_preset(-1))
+	bar.add_child(prev)
+	_preset_select = OptionButton.new()
+	_preset_select.custom_minimum_size.x = 220
+	_preset_select.item_selected.connect(func(i): rig.load_preset(_presets[i]))
+	bar.add_child(_preset_select)
+	var next := Button.new()
+	next.text = "▶"
+	next.tooltip_text = "Next preset"
+	next.pressed.connect(func(): _step_preset(1))
+	bar.add_child(next)
+
+	var save := Button.new()
+	save.text = "Save…"
+	save.tooltip_text = "Save the current sound as your own preset"
+	save.pressed.connect(func():
+		_save_name.text = String(rig.current_preset.get("name", "My Sound")) + " (mine)"
+		_save_dialog.popup_centered(Vector2i(420, 120)))
+	bar.add_child(save)
+	var share := Button.new()
+	share.text = "Share…"
+	share.tooltip_text = "Copy this sound as a code, or paste a code from someone else"
+	share.pressed.connect(func():
+		_share_text.text = PresetLibrary.to_code(PresetLibrary.capture(rig.synth, String(rig.current_preset.get("name", "Shared"))))
+		_share_dialog.popup_centered(Vector2i(620, 300)))
+	bar.add_child(share)
+
+	_add_module = MenuButton.new()
+	_add_module.text = "+ Module"
+	_add_module.flat = false
+	_add_module.get_popup().id_pressed.connect(func(id): tangle.add_module(_add_module.get_popup().get_item_metadata(id)))
+	bar.add_child(_add_module)
+
+	var spacer := Control.new()
+	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	bar.add_child(spacer)
+
+	var tl := Label.new()
+	tl.text = "Tempo"
+	bar.add_child(tl)
+	_tempo = SpinBox.new()
+	_tempo.min_value = 40
+	_tempo.max_value = 240
+	_tempo.step = 1
+	_tempo.value = 120
+	_tempo.suffix = "BPM"
+	_tempo.custom_minimum_size.x = 120
+	_tempo.value_changed.connect(func(v): rig.synth.tempo = v)
+	bar.add_child(_tempo)
+
+	var vl := Label.new()
+	vl.text = "Volume"
+	bar.add_child(vl)
+	var vol := HSlider.new()
+	vol.min_value = -40
+	vol.max_value = 6
+	vol.value = float(Settings.get_value("master_volume_db"))
+	vol.custom_minimum_size.x = 120
+	vol.value_changed.connect(func(v):
+		rig.synth.volume_db = v
+		Settings.set_value("master_volume_db", v))
+	rig.synth.volume_db = vol.value
+	bar.add_child(vol)
+	_meter = ProgressBar.new()
+	_meter.custom_minimum_size = Vector2(90, 14)
+	_meter.max_value = 1.0
+	_meter.show_percentage = false
+	_meter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	bar.add_child(_meter)
+	_cpu = Label.new()
+	_cpu.custom_minimum_size.x = 80
+	_cpu.add_theme_font_size_override("font_size", 11)
+	bar.add_child(_cpu)
+	return bar
+
+
+func _build_dialogs() -> void:
+	_share_dialog = AcceptDialog.new()
+	_share_dialog.title = "Share a sound"
+	var v := VBoxContainer.new()
+	var help := Label.new()
+	help.text = "Copy this code and send it to someone, or paste their code here and press Load."
+	help.autowrap_mode = TextServer.AUTOWRAP_WORD
+	v.add_child(help)
+	_share_text = TextEdit.new()
+	_share_text.custom_minimum_size = Vector2(580, 160)
+	_share_text.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	v.add_child(_share_text)
+	var row := HBoxContainer.new()
+	var copy := Button.new()
+	copy.text = "Copy"
+	copy.pressed.connect(func(): DisplayServer.clipboard_set(_share_text.text))
+	row.add_child(copy)
+	var paste := Button.new()
+	paste.text = "Paste"
+	paste.pressed.connect(func(): _share_text.text = DisplayServer.clipboard_get())
+	row.add_child(paste)
+	var load := Button.new()
+	load.text = "Load"
+	load.pressed.connect(_load_shared)
+	row.add_child(load)
+	v.add_child(row)
+	_share_dialog.add_child(v)
+	add_child(_share_dialog)
+
+	_save_dialog = ConfirmationDialog.new()
+	_save_dialog.title = "Save preset"
+	_save_name = LineEdit.new()
+	_save_name.placeholder_text = "Preset name"
+	_save_dialog.add_child(_save_name)
+	_save_dialog.confirmed.connect(func():
+		var name := _save_name.text.strip_edges()
+		if name == "":
+			return
+		var preset := PresetLibrary.capture(rig.synth, name)
+		var path := PresetLibrary.save_user(preset)
+		preset["path"] = path
+		preset["factory"] = false
+		rig.current_preset = preset
+		_refresh_presets()
+		_update_status("Saved preset '%s'" % name))
+	add_child(_save_dialog)
+
+
+func _load_shared() -> void:
+	var preset := PresetLibrary.from_code(_share_text.text)
+	if preset.is_empty():
+		_update_status("That code isn't a valid sound code.")
+		return
+	if preset.instrument != rig.instrument:
+		rig.set_instrument(preset.instrument)
+		Settings.set_value("instrument", preset.instrument)
+	rig.load_preset(preset)
+	_share_dialog.hide()
+	_update_status("Loaded shared sound '%s'" % preset.get("name", "?"))
+
+
+func _on_instrument_changed() -> void:
+	var t := rig.instrument
+	for i in _inst_select.item_count:
+		if _inst_select.get_item_text(i) == t:
+			_inst_select.select(i)
+	var is_tangle := t == "Tangle"
+	panel.visible = not is_tangle
+	tangle.visible = is_tangle
+	_add_module.visible = is_tangle
+	if is_tangle:
+		if tangle.rig == null:
+			tangle.bind(rig)
+		else:
+			tangle.rebuild()
+		var popup := _add_module.get_popup()
+		popup.clear()
+		var i := 0
+		for m in tangle.module_types():
+			popup.add_item(m.name, i)
+			popup.set_item_metadata(i, m.type)
+			popup.set_item_tooltip(i, m.description)
+			i += 1
+	else:
+		panel.rebuild()
+	keys.accent = rig.color()
+	keys.drum_mode = t == "Pulsar"
+	keys.queue_redraw()
+	_refresh_presets()
+
+
+func _refresh_presets() -> void:
+	_presets = PresetLibrary.list(rig.instrument)
+	_preset_select.clear()
+	for p in _presets:
+		_preset_select.add_item(("" if p.factory else "★ ") + String(p.name))
+	_sync_preset_select()
+
+
+func _sync_preset_select() -> void:
+	for i in _presets.size():
+		if _presets[i].get("path", "") == rig.current_preset.get("path", "-"):
+			_preset_select.select(i)
+			return
+
+
+func _step_preset(d: int) -> void:
+	if _presets.is_empty():
+		return
+	var i := (_preset_select.selected + d + _presets.size()) % _presets.size()
+	_preset_select.select(i)
+	rig.load_preset(_presets[i])
+
+
+func _update_status(extra := "") -> void:
+	var dev := "No MIDI devices" if Midi.devices.is_empty() else "MIDI: " + ", ".join(Midi.devices)
+	var help := "Keys: A–L play, W E T Y U O P sharps, Z/X octave (%d), C/V velocity (%d)" % [Midi.qwerty_octave, Midi.qwerty_velocity]
+	_status.text = "  •  ".join([extra, dev, help].filter(func(s): return s != ""))
+
+
+func _process(_delta: float) -> void:
+	var pk := rig.synth.take_peak()
+	_meter.value = maxf(_meter.value * 0.85, maxf(pk.x, pk.y))
+	_cpu.text = "DSP %.1f%%" % (rig.synth.get_cpu_load() * 100.0)
+	if _shot_path != "":
+		_shot_frames -= 1
+		if _shot_frames <= 0:
+			var img := get_viewport().get_texture().get_image()
+			DirAccess.make_dir_recursive_absolute(_shot_path.get_base_dir())
+			img.save_png(_shot_path)
+			print("screenshot: ", _shot_path)
+			get_tree().quit()
+
+
+func _unhandled_key_input(event: InputEvent) -> void:
+	# Octave/velocity changes show up in the status line.
+	if event is InputEventKey and event.pressed:
+		_update_status()
+
+
+func _parse_dev_args() -> void:
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--shot="):
+			_shot_path = a.trim_prefix("--shot=")
+		elif a.begins_with("--instrument="):
+			rig.set_instrument(a.trim_prefix("--instrument="))
+		elif a.begins_with("--frames="):
+			_shot_frames = int(a.trim_prefix("--frames="))

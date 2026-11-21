@@ -108,6 +108,7 @@ public:
 	std::atomic<int64_t> frame_pos{ 0 };
 	std::atomic<float> peak_l{ 0.0f }, peak_r{ 0.0f }, cpu_load{ 0.0f };
 	std::atomic<int> active_playbacks{ 0 };
+	std::atomic<uint32_t> owner_token{ 0 }, owner_current{ 0 };
 	float sample_rate = 48000.0f;
 	float gain = 1.0f;
 	std::vector<float> temp_l, temp_r;

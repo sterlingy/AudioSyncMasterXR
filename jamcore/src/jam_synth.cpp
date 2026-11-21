@@ -8,7 +8,7 @@ using namespace godot;
 // ---------------- Playback ----------------
 
 JamSynthPlayback::~JamSynthPlayback() {
-	if (owner && core) core->active_playbacks.fetch_sub(1);
+	if (counted && core) core->active_playbacks.fetch_sub(1);
 }
 
 void JamSynthPlayback::setup(const std::shared_ptr<jam::SynthCore> &p_core) {
@@ -17,22 +17,23 @@ void JamSynthPlayback::setup(const std::shared_ptr<jam::SynthCore> &p_core) {
 
 void JamSynthPlayback::_start(double p_from_pos) {
 	if (!core) return;
-	if (!owner) {
-		int expected = 0;
-		if (core->active_playbacks.compare_exchange_strong(expected, 1)) {
-			owner = true;
-		} else {
-			UtilityFunctions::push_warning("JamSynth is already playing on another player; this one stays silent.");
-		}
+	if (!counted) {
+		core->active_playbacks.fetch_add(1);
+		counted = true;
 	}
+	// The newest playback takes over; an older one (a player being restarted)
+	// goes silent. All playbacks are mixed on the same audio thread, so the
+	// handover never renders the core twice at once.
+	token = core->owner_token.fetch_add(1) + 1;
+	core->owner_current.store(token);
 	playing = true;
 }
 
 void JamSynthPlayback::_stop() {
 	playing = false;
-	if (owner && core) {
+	if (counted && core) {
 		core->active_playbacks.fetch_sub(1);
-		owner = false;
+		counted = false;
 	}
 }
 
@@ -41,7 +42,7 @@ bool JamSynthPlayback::_is_playing() const {
 }
 
 int32_t JamSynthPlayback::_mix(AudioFrame *p_buffer, float p_rate_scale, int32_t p_frames) {
-	if (!playing || !owner || !core || core->temp_l.empty()) {
+	if (!playing || !core || core->owner_current.load() != token || core->temp_l.empty()) {
 		for (int i = 0; i < p_frames; i++) p_buffer[i] = AudioFrame{ 0.0f, 0.0f };
 		return p_frames;
 	}
