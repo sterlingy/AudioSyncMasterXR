@@ -106,6 +106,7 @@ class JamAudioLink : public RefCounted {
 	std::atomic<bool> capture_ready{false};
 	int capture_device = -1;
 	int capture_channel = -1;
+	bool capture_exclusive = false;
 	std::atomic<bool> sending{false};
 	std::atomic<float> input_peak{0.0f};
 	std::atomic<float> input_gain{1.0f};
@@ -153,7 +154,8 @@ public:
 
 	static PackedStringArray get_input_devices();
 	static bool has_native_capture();
-	Error start_capture(int device, int channel);
+	Error start_capture(int device, int channel, bool exclusive = false);
+	bool is_capture_exclusive() const { return capture.is_exclusive(); }
 	void stop_capture();
 	bool is_capturing() const { return capture.running(); }
 	String get_capture_error() const { return String(capture.error().c_str()); }

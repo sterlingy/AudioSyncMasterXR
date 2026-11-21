@@ -64,6 +64,7 @@ var input_device := -1 # -1 = system default
 var input_channel := -1 # -1 = mix all channels
 var audio_buffer_ms := 15.0 # receive jitter buffer
 var audio_codec := "pcm16"
+var input_exclusive := false # WASAPI exclusive: ~3 ms instead of ~10 ms, but locks the device
 var audio_error := ""
 var _udp := PacketPeerUDP.new()
 var _link: ClockLink
@@ -88,6 +89,13 @@ func _ready() -> void:
 	Transport.request.connect(_on_transport_request)
 	var saved: Variant = Settings.get_value("player_name")
 	player_name = str(saved) if saved else "Player"
+	input_channel = int(Settings.get_value("audio_channel"))
+	input_exclusive = bool(Settings.get_value("audio_exclusive"))
+	audio_buffer_ms = float(Settings.get_value("audio_buffer_ms"))
+	audio_codec = str(Settings.get_value("audio_codec"))
+	var dev_name := str(Settings.get_value("audio_device"))
+	if dev_name != "" and ClassDB.class_exists("JamAudioLink"):
+		input_device = Array(ClassDB.class_call_static("JamAudioLink", "get_input_devices")).find(dev_name)
 
 
 func is_online() -> bool:
@@ -811,9 +819,14 @@ func set_send_audio(on: bool) -> void:
 	_apply_audio_input()
 
 
-func set_input(device: int, channel: int) -> void:
+func set_input(device: int, channel: int, exclusive := input_exclusive) -> void:
 	input_device = device
 	input_channel = channel
+	input_exclusive = exclusive
+	var names: PackedStringArray = ClassDB.class_call_static("JamAudioLink", "get_input_devices") if ClassDB.class_exists("JamAudioLink") else PackedStringArray()
+	Settings.set_value("audio_device", names[device] if device >= 0 and device < names.size() else "")
+	Settings.set_value("audio_channel", channel)
+	Settings.set_value("audio_exclusive", exclusive)
 	if audio and audio.is_capturing():
 		audio.stop_capture()
 	_apply_audio_input()
@@ -821,12 +834,14 @@ func set_input(device: int, channel: int) -> void:
 
 func set_audio_buffer_ms(ms: float) -> void:
 	audio_buffer_ms = ms
+	Settings.set_value("audio_buffer_ms", ms)
 	if audio:
 		audio.set_latency_ms(ms)
 
 
 func set_audio_codec(codec: String) -> void:
 	audio_codec = codec
+	Settings.set_value("audio_codec", codec)
 	if audio:
 		audio.set_codec(codec)
 
@@ -840,7 +855,7 @@ func _apply_audio_input() -> void:
 		return
 	audio_error = ""
 	if audio.has_native_capture() and not audio.is_capturing():
-		if audio.start_capture(input_device, input_channel) != OK:
+		if audio.start_capture(input_device, input_channel, input_exclusive) != OK:
 			audio_error = "Input didn't start: " + audio.get_capture_error()
 			return
 	audio.set_sending(true)

@@ -15,6 +15,11 @@ const DEFAULTS := {
 	"instrument": "Undertow",
 	"player_name": "",
 	"last_host": "",
+	"audio_device": "", # input device name ("" = system default)
+	"audio_channel": -1,
+	"audio_exclusive": false,
+	"audio_buffer_ms": 15.0,
+	"audio_codec": "pcm16",
 }
 
 var _cfg := ConfigFile.new()

@@ -1,6 +1,8 @@
-// Native microphone / audio-interface capture. Windows: WASAPI shared mode,
-// event driven, at the device's smallest engine period (IAudioClient3) when
-// the driver allows it. Other platforms: not yet (Android AAudio/Oboe comes
+// Native microphone / audio-interface capture. Windows: WASAPI, event
+// driven. Shared mode uses the device's smallest engine period
+// (IAudioClient3) when the driver allows it; exclusive mode (opt-in: other
+// apps lose the input meanwhile) opens the device at its minimum period,
+// often ~3 ms, and falls back to shared mode if the device refuses. Other platforms: not yet (Android AAudio/Oboe comes
 // with the headset milestone); Godot's own capture is the fallback there.
 #pragma once
 #include <atomic>
@@ -21,7 +23,8 @@ public:
 
 	~AudioCapture() { stop(); }
 	// channel: -1 = mix all input channels, otherwise that channel only.
-	bool start(int device, int channel, CaptureCallback cb);
+	bool start(int device, int channel, CaptureCallback cb, bool exclusive = false);
+	bool is_exclusive() const { return excl.load(); }
 	void stop();
 	bool running() const { return active.load(); }
 	int sample_rate() const { return rate.load(); }
@@ -29,7 +32,8 @@ public:
 	std::string error() const { return err; }
 
 private:
-	void run(int device, int channel);
+	void run(int device, int channel, bool exclusive);
+	std::atomic<bool> excl{false};
 	CaptureCallback callback;
 	std::thread thread;
 	std::atomic<bool> quit{false};

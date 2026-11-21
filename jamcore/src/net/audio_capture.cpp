@@ -19,6 +19,9 @@ namespace jam {
 #ifdef _WIN32
 
 namespace {
+const GUID kSubtypePcm = {0x00000001, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+const GUID kSubtypeFloat = {0x00000003, 0x0000, 0x0010, {0x80, 0x00, 0x00, 0xaa, 0x00, 0x38, 0x9b, 0x71}};
+
 // kFriendlyName (functiondiscoverykeys_devpkey.h)
 const PROPERTYKEY kFriendlyName = {{0xa45c254e, 0xdf1c, 0x4efd, {0x80, 0x20, 0x67, 0xd1, 0x46, 0xa8, 0x50, 0xe0}}, 14};
 
@@ -84,13 +87,13 @@ std::vector<std::string> AudioCapture::list_devices() {
 	return out;
 }
 
-bool AudioCapture::start(int device, int channel, CaptureCallback cb) {
+bool AudioCapture::start(int device, int channel, CaptureCallback cb, bool exclusive) {
 	stop();
 	callback = std::move(cb);
 	quit = false;
 	started = false;
 	err.clear();
-	thread = std::thread([this, device, channel] { run(device, channel); });
+	thread = std::thread([this, device, channel, exclusive] { run(device, channel, exclusive); });
 	// Wait for the device to open (or fail).
 	for (int i = 0; i < 300 && !started.load(); i++) std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	if (!active.load()) {
@@ -107,7 +110,7 @@ void AudioCapture::stop() {
 	active = false;
 }
 
-void AudioCapture::run(int device, int channel) {
+void AudioCapture::run(int device, int channel, bool exclusive) {
 	HRESULT co = CoInitializeEx(nullptr, COINIT_MULTITHREADED);
 	IMMDeviceEnumerator *en = nullptr;
 	IMMDevice *dev = nullptr;
@@ -115,6 +118,7 @@ void AudioCapture::run(int device, int channel) {
 	IAudioClient3 *client3 = nullptr;
 	IAudioCaptureClient *cap = nullptr;
 	WAVEFORMATEX *fmt = nullptr;
+	WAVEFORMATEXTENSIBLE xfmt{};
 	HANDLE event = CreateEventW(nullptr, FALSE, FALSE, nullptr);
 	HANDLE mmcss = nullptr;
 	std::vector<float> mono;
@@ -143,7 +147,64 @@ void AudioCapture::run(int device, int channel) {
 	bits = fmt->wBitsPerSample;
 	is_float = fmt->wFormatTag == WAVE_FORMAT_IEEE_FLOAT ||
 			(fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE && ((WAVEFORMATEXTENSIBLE *)fmt)->SubFormat.Data1 == WAVE_FORMAT_IEEE_FLOAT);
-	{
+	excl = false;
+	if (exclusive) {
+		// Try common interface formats at 48 kHz, then at the device's own rate.
+		struct Cand {
+			WORD bits, valid;
+			bool flt;
+		} cands[] = {{32, 32, true}, {32, 24, false}, {24, 24, false}, {16, 16, false}};
+		const DWORD rates[] = {48000, fmt->nSamplesPerSec};
+		REFERENCE_TIME def_p = 0, min_p = 0;
+		client->GetDevicePeriod(&def_p, &min_p);
+		for (DWORD r : rates) {
+			for (const Cand &c : cands) {
+				WAVEFORMATEXTENSIBLE x{};
+				x.Format.wFormatTag = WAVE_FORMAT_EXTENSIBLE;
+				x.Format.nChannels = (WORD)nch;
+				x.Format.nSamplesPerSec = r;
+				x.Format.wBitsPerSample = c.bits;
+				x.Format.nBlockAlign = (WORD)(nch * c.bits / 8);
+				x.Format.nAvgBytesPerSec = r * x.Format.nBlockAlign;
+				x.Format.cbSize = sizeof(WAVEFORMATEXTENSIBLE) - sizeof(WAVEFORMATEX);
+				x.Samples.wValidBitsPerSample = c.valid;
+				x.dwChannelMask = fmt->wFormatTag == WAVE_FORMAT_EXTENSIBLE ? ((WAVEFORMATEXTENSIBLE *)fmt)->dwChannelMask : 0;
+				x.SubFormat = c.flt ? kSubtypeFloat : kSubtypePcm;
+				if (client->IsFormatSupported(AUDCLNT_SHAREMODE_EXCLUSIVE, &x.Format, nullptr) != S_OK) continue;
+				REFERENCE_TIME p = min_p;
+				HRESULT hr = client->Initialize(AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, p, p, &x.Format, nullptr);
+				if (hr == AUDCLNT_E_BUFFER_SIZE_NOT_ALIGNED) {
+					UINT32 frames = 0;
+					client->GetBufferSize(&frames);
+					release(client);
+					dev->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void **)&client);
+					p = (REFERENCE_TIME)(10000.0 * 1000.0 * frames / r + 0.5);
+					hr = client->Initialize(AUDCLNT_SHAREMODE_EXCLUSIVE, AUDCLNT_STREAMFLAGS_EVENTCALLBACK, p, p, &x.Format, nullptr);
+				}
+				if (SUCCEEDED(hr)) {
+					xfmt = x;
+					excl = true;
+					period = p / 10000.0;
+					break;
+				}
+				// A failed Initialize leaves the client unusable: start over with a fresh one.
+				release(client);
+				dev->Activate(__uuidof(IAudioClient), CLSCTX_ALL, nullptr, (void **)&client);
+			}
+			if (excl.load()) break;
+		}
+		if (excl.load()) {
+			// Convert using the exclusive format from now on.
+			CoTaskMemFree(fmt);
+			fmt = (WAVEFORMATEX *)CoTaskMemAlloc(sizeof(WAVEFORMATEXTENSIBLE));
+			memcpy(fmt, &xfmt, sizeof(WAVEFORMATEXTENSIBLE));
+			bits = xfmt.Format.wBitsPerSample;
+			is_float = xfmt.SubFormat == kSubtypeFloat;
+		} else {
+			err = "exclusive mode refused; using shared mode";
+		}
+	}
+	if (!excl.load()) {
 		bool ok = false;
 		// Smallest shared-mode period the driver offers (often 2.7-5 ms instead of 10 ms).
 		if (SUCCEEDED(client->QueryInterface(__uuidof(IAudioClient3), (void **)&client3))) {

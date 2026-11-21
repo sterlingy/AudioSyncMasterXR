@@ -15,6 +15,7 @@ var _rows := {} # id -> latency Label
 var _send: CheckButton
 var _device: OptionButton
 var _channel: OptionButton
+var _exclusive: CheckBox
 var _in_meter: ProgressBar
 var _audio_info: Label
 var _in_peak := 0.0
@@ -78,7 +79,16 @@ func _ready() -> void:
 	for t in ["All channels", "Channel 1", "Channel 2", "Channel 3", "Channel 4"]:
 		_channel.add_item(t)
 	_channel.item_selected.connect(func(_i): _input_changed())
+	_channel.select(clampi(Session.input_channel + 1, 0, _channel.item_count - 1))
+	_device.select(clampi(Session.input_device + 1, 0, _device.item_count - 1))
 	arow.add_child(_channel)
+	_exclusive = CheckBox.new()
+	_exclusive.text = "Exclusive"
+	_exclusive.tooltip_text = "Lowest input latency (about 3 ms instead of 10 ms on most interfaces). Other apps can't use this input meanwhile."
+	_exclusive.button_pressed = Session.input_exclusive
+	_exclusive.visible = OS.get_name() == "Windows"
+	_exclusive.toggled.connect(func(_on): _input_changed())
+	arow.add_child(_exclusive)
 	_in_meter = ProgressBar.new()
 	_in_meter.custom_minimum_size = Vector2(120, 14)
 	_in_meter.max_value = 1.0
@@ -90,6 +100,8 @@ func _ready() -> void:
 	for c in [["PCM 16-bit (LAN)", "pcm16"], ["PCM 24-bit", "pcm24"], ["Opus 128k (Wi-Fi/internet)", "opus"]]:
 		codec.add_item(c[0])
 		codec.set_item_metadata(codec.item_count - 1, c[1])
+		if c[1] == Session.audio_codec:
+			codec.select(codec.item_count - 1)
 	codec.item_selected.connect(func(i): Session.set_audio_codec(codec.get_item_metadata(i)))
 	arow.add_child(codec)
 	arow.add_child(_label("   Buffer"))
@@ -121,7 +133,7 @@ func _ready() -> void:
 
 
 func _input_changed() -> void:
-	Session.set_input(_device.get_selected_id() - 1, _channel.selected - 1)
+	Session.set_input(_device.get_selected_id() - 1, _channel.selected - 1, _exclusive.button_pressed)
 
 
 func _do_join() -> void:
@@ -196,7 +208,9 @@ func _process(_d: float) -> void:
 	elif Session.audio_error != "":
 		_audio_info.text = Session.audio_error
 	elif a and a.is_capturing():
-		_audio_info.text = "Sending: input period %.1f ms, %s. Use headphones so others don't hear themselves back." % [a.get_capture_period_ms(), a.get_codec()]
+		_audio_info.text = "Sending: input period %.1f ms (%s), %s. Use headphones so others don't hear themselves back." % [a.get_capture_period_ms(), "exclusive" if a.is_capture_exclusive() else "shared", a.get_codec()]
+		if Session.input_exclusive and not a.is_capture_exclusive():
+			_audio_info.text += " The device refused exclusive mode.
 	else:
 		_audio_info.text = "Not sending. Everyone else's audio still plays here."
 	for id in _rows:

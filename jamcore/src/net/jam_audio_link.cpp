@@ -430,17 +430,18 @@ void JamAudioLink::feed(const float *mono, int frames, int sample_rate) {
 	if (pk > input_peak.load(std::memory_order_relaxed)) input_peak.store(pk, std::memory_order_relaxed);
 }
 
-Error JamAudioLink::start_capture(int device, int channel) {
+Error JamAudioLink::start_capture(int device, int channel, bool exclusive) {
 	if (!running.load()) return ERR_UNCONFIGURED;
 	capture.stop();
 	capture_ready = false; // until the source matches the device's rate
 	if (!capture.start(device, channel, [this](const float *mono, int frames, int sr) {
 			if (capture_ready.load(std::memory_order_acquire)) feed(mono, frames, sr);
-		})) {
+		}, exclusive)) {
 		return ERR_CANT_OPEN;
 	}
 	capture_device = device;
 	capture_channel = channel;
+	capture_exclusive = exclusive;
 	capture_period_ms = capture.period_ms();
 	setup_source(capture.sample_rate());
 	capture_ready.store(true, std::memory_order_release);
@@ -485,7 +486,7 @@ void JamAudioLink::set_codec(const String &name, int bitrate) {
 	capture.stop();
 	apply_format();
 	if (sending.load()) source->startStream(0, nullptr);
-	if (was) start_capture(capture_device, capture_channel);
+	if (was) start_capture(capture_device, capture_channel, capture_exclusive);
 }
 
 void JamAudioLink::set_block_size(int frames) {
@@ -505,7 +506,8 @@ void JamAudioLink::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("poll"), &JamAudioLink::poll);
 	ClassDB::bind_static_method("JamAudioLink", D_METHOD("get_input_devices"), &JamAudioLink::get_input_devices);
 	ClassDB::bind_static_method("JamAudioLink", D_METHOD("has_native_capture"), &JamAudioLink::has_native_capture);
-	ClassDB::bind_method(D_METHOD("start_capture", "device", "channel"), &JamAudioLink::start_capture, DEFVAL(-1), DEFVAL(-1));
+	ClassDB::bind_method(D_METHOD("start_capture", "device", "channel", "exclusive"), &JamAudioLink::start_capture, DEFVAL(-1), DEFVAL(-1), DEFVAL(false));
+	ClassDB::bind_method(D_METHOD("is_capture_exclusive"), &JamAudioLink::is_capture_exclusive);
 	ClassDB::bind_method(D_METHOD("stop_capture"), &JamAudioLink::stop_capture);
 	ClassDB::bind_method(D_METHOD("is_capturing"), &JamAudioLink::is_capturing);
 	ClassDB::bind_method(D_METHOD("get_capture_error"), &JamAudioLink::get_capture_error);
