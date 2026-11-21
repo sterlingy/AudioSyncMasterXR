@@ -40,6 +40,7 @@ var _shot_after := 0.0 # seconds; used instead of frames when set
 
 
 func _ready() -> void:
+	_fit_to_screen()
 	var bg := ColorRect.new()
 	bg.color = Color(0.07, 0.075, 0.09)
 	bg.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -90,9 +91,13 @@ func _ready() -> void:
 	loop_view = LooperView.new()
 	loop_view.set_anchors_preset(Control.PRESET_FULL_RECT)
 	body.add_child(loop_view)
+	var jam_scroll := ScrollContainer.new() # the Jam tab scrolls on short screens
+	jam_scroll.set_anchors_preset(Control.PRESET_FULL_RECT)
+	jam_scroll.horizontal_scroll_mode = ScrollContainer.SCROLL_MODE_DISABLED
+	body.add_child(jam_scroll)
 	players_view = PlayersView.new()
-	players_view.set_anchors_preset(Control.PRESET_FULL_RECT)
-	body.add_child(players_view)
+	players_view.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	jam_scroll.add_child(players_view)
 
 	keys = KeyboardView.new()
 	keys.custom_minimum_size.y = 130
@@ -113,8 +118,9 @@ func _ready() -> void:
 
 
 func _build_top_bar() -> Control:
-	var bar := HBoxContainer.new()
-	bar.add_theme_constant_override("separation", 8)
+	var bar := HFlowContainer.new() # wraps onto a second line on narrow screens
+	bar.add_theme_constant_override("h_separation", 8)
+	bar.add_theme_constant_override("v_separation", 6)
 	var title := Label.new()
 	title.text = "AudioSyncMaster"
 	title.add_theme_font_size_override("font_size", 18)
@@ -197,12 +203,14 @@ func _build_top_bar() -> Control:
 	_cpu.custom_minimum_size.x = 80
 	_cpu.add_theme_font_size_override("font_size", 11)
 	bar.add_child(_cpu)
+	_group([vl, vol, _meter, _cpu])
 	return bar
 
 
 func _build_transport_bar() -> Control:
-	var bar := HBoxContainer.new()
-	bar.add_theme_constant_override("separation", 8)
+	var bar := HFlowContainer.new()
+	bar.add_theme_constant_override("h_separation", 8)
+	bar.add_theme_constant_override("v_separation", 6)
 	_play = Button.new()
 	_play.text = "▶ Play"
 	_play.custom_minimum_size.x = 90
@@ -232,11 +240,13 @@ func _build_transport_bar() -> Control:
 	_tempo.value_changed.connect(func(v): Transport.set_tempo(v))
 	_link(Transport.tempo_changed, func(b): _tempo.set_value_no_signal(b))
 	bar.add_child(_tempo)
+	var tempo_label := bar.get_child(bar.get_child_count() - 2)
 	var tap := Button.new()
 	tap.text = "Tap"
 	tap.tooltip_text = "Tap a few times on the beat to set the tempo (in a session, the host approves it)"
 	tap.pressed.connect(func(): Transport.tap())
 	bar.add_child(tap)
+	_group([tempo_label, _tempo, tap])
 	bar.add_child(_lbl("Beats/Bar"))
 	var bpb := SpinBox.new()
 	bpb.min_value = 1
@@ -245,6 +255,7 @@ func _build_transport_bar() -> Control:
 	bpb.value_changed.connect(func(v): Transport.set_beats_per_bar(int(v)))
 	_link(Transport.meter_changed, func(n): bpb.set_value_no_signal(n))
 	bar.add_child(bpb)
+	_group([bar.get_child(bar.get_child_count() - 2), bpb])
 	var met := CheckButton.new()
 	met.text = "Metronome"
 	met.button_pressed = Transport.metronome_on
@@ -261,6 +272,7 @@ func _build_transport_bar() -> Control:
 		Transport.click_volume_db = v
 		Settings.set_value("click_volume_db", v))
 	bar.add_child(cv)
+	_group([met, cv])
 	var ci := CheckButton.new()
 	ci.text = "Count-in"
 	ci.button_pressed = Transport.count_in_bars > 0
@@ -281,12 +293,24 @@ func _build_transport_bar() -> Control:
 	live.text = "Live Quantize"
 	live.tooltip_text = "Also snap what you play live (delays notes to the next grid point)"
 	bar.add_child(live)
+	_group([q, grid])
 	var apply := func(_x = null):
 		Transport.set_quantize(q.button_pressed, Transport.GRIDS[grid.selected][1], live.button_pressed)
 	q.toggled.connect(apply)
 	grid.item_selected.connect(apply)
 	live.toggled.connect(apply)
 	return bar
+
+
+## Keeps a label and its controls together when a flow bar wraps.
+func _group(nodes: Array) -> void:
+	var parent: Node = nodes[0].get_parent()
+	var g := HBoxContainer.new()
+	g.add_theme_constant_override("separation", 6)
+	parent.add_child(g)
+	parent.move_child(g, nodes[0].get_index())
+	for n in nodes:
+		n.reparent(g, false)
 
 
 ## Host only: a player's tempo suggestion, with Accept / Ignore.
@@ -323,6 +347,20 @@ func _on_tempo_suggested(_id: int, who: String, bpm: float) -> void:
 func _answer_suggestion(accept: bool) -> void:
 	Session.answer_suggestion(accept)
 	_suggest_bar.visible = false
+
+
+## Phones and tablets: scale the whole UI by screen density so text and
+## controls are finger-sized (desktop stays 1:1).
+func _fit_to_screen() -> void:
+	if not OS.has_feature("mobile"):
+		return
+	var dpi := float(DisplayServer.screen_get_dpi())
+	get_window().content_scale_factor = ui_scale_for_dpi(dpi)
+
+
+static func ui_scale_for_dpi(dpi: float) -> float:
+	# ~1.0 at 160 dpi (desktop-like), ~2 on a 420 dpi phone.
+	return clampf(snappedf(dpi / 210.0, 0.25), 1.0, 3.0)
 
 
 ## Connects to an autoload's signal and remembers it, so freeing this scene
@@ -367,7 +405,7 @@ func _show_body() -> void:
 	tangle.visible = sound and is_tangle
 	seq_view.visible = _tabs.current_tab == 1
 	loop_view.visible = _tabs.current_tab == 2
-	players_view.visible = _tabs.current_tab == 3
+	players_view.get_parent().visible = _tabs.current_tab == 3
 	if seq_view.visible:
 		seq_view.bind(rig.sequencer, rig.color(), rig.instrument == "Pulsar")
 	if loop_view.visible:

@@ -31,3 +31,42 @@ func test_midi_dialog_and_bluetooth_scan() -> void:
 	else:
 		assert_string_contains(dlg._bt_status.text, "Android", "desktop explains where Bluetooth MIDI pairing happens")
 	dlg.hide()
+
+
+func test_touch_keyboard_plays_chords_and_fits_octaves() -> void:
+	var kb := KeyboardView.new()
+	kb.size = Vector2(1000, 120)
+	add_child_autofree(kb)
+	await wait_frames(1)
+	Midi.release_all()
+	for finger in 2:
+		var t := InputEventScreenTouch.new()
+		t.index = finger
+		t.pressed = true
+		t.position = Vector2(30 + finger * 120, 110)
+		kb._gui_input(t)
+	assert_eq(Midi.held.size(), 2, "two fingers hold two notes")
+	# The emulated mouse click for the first finger doesn't add a third note.
+	var m := InputEventMouseButton.new()
+	m.button_index = MOUSE_BUTTON_LEFT
+	m.pressed = true
+	m.position = Vector2(30, 110)
+	m.device = InputEvent.DEVICE_ID_EMULATION
+	kb._gui_input(m)
+	assert_eq(Midi.held.size(), 2)
+	for finger in 2:
+		var t := InputEventScreenTouch.new()
+		t.index = finger
+		t.pressed = false
+		kb._gui_input(t)
+	assert_eq(Midi.held.size(), 0, "lifting both fingers releases both")
+	kb.size = Vector2(400, 120)
+	kb._fit_octaves()
+	assert_eq(kb.octaves, 1, "a phone-width keyboard shows fewer, wider keys")
+
+
+func test_ui_scale_follows_screen_density() -> void:
+	var main_script: GDScript = load("res://scripts/main.gd")
+	assert_eq(main_script.ui_scale_for_dpi(96.0), 1.0, "desktop stays 1:1")
+	assert_eq(main_script.ui_scale_for_dpi(420.0), 2.0, "phone")
+	assert_eq(main_script.ui_scale_for_dpi(1200.0), 3.0, "capped")

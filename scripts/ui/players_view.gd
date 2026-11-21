@@ -26,8 +26,9 @@ var _hint: Label
 func _ready() -> void:
 	add_theme_constant_override("separation", 10)
 	add_child(_heading("SESSION"))
-	var row := HBoxContainer.new()
-	row.add_theme_constant_override("separation", 8)
+	var row := HFlowContainer.new()
+	row.add_theme_constant_override("h_separation", 8)
+	row.add_theme_constant_override("v_separation", 6)
 	add_child(row)
 	row.add_child(_label("Your name"))
 	_name = LineEdit.new()
@@ -57,12 +58,14 @@ func _ready() -> void:
 	_status = Label.new()
 	_status.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_status.custom_minimum_size.x = 300
 	add_child(_status)
 
 	add_child(HSeparator.new())
 	add_child(_heading("MY AUDIO (mic, voice, real instrument)"))
-	var arow := HBoxContainer.new()
-	arow.add_theme_constant_override("separation", 8)
+	var arow := HFlowContainer.new()
+	arow.add_theme_constant_override("h_separation", 8)
+	arow.add_theme_constant_override("v_separation", 6)
 	add_child(arow)
 	_send = CheckButton.new()
 	_send.text = "Audio input on"
@@ -125,6 +128,7 @@ func _ready() -> void:
 	buf.value_changed.connect(func(v): Session.set_audio_buffer_ms(v))
 	arow.add_child(buf)
 	_audio_info = Label.new()
+	_audio_info.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_audio_info.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
 	add_child(_audio_info)
 
@@ -135,8 +139,9 @@ func _ready() -> void:
 	_steady.button_pressed = Session.steady_timing
 	_steady.toggled.connect(func(on): Session.steady_timing = on)
 	add_child(_steady)
-	var mrow := HBoxContainer.new()
-	mrow.add_theme_constant_override("separation", 8)
+	var mrow := HFlowContainer.new()
+	mrow.add_theme_constant_override("h_separation", 8)
+	mrow.add_theme_constant_override("v_separation", 6)
 	add_child(mrow)
 	mrow.add_child(_label("Timing"))
 	_mode = OptionButton.new()
@@ -150,6 +155,7 @@ func _ready() -> void:
 	_hint.add_theme_color_override("font_color", Color(1.0, 0.8, 0.35))
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
 	_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	_hint.custom_minimum_size.x = 320 # wrapping text needs a width inside a flow row
 	mrow.add_child(_hint)
 	Session.interval_changed.connect(_mode.select)
 	_list = VBoxContainer.new()
@@ -213,8 +219,8 @@ func _rebuild() -> void:
 		_list.add_child(l)
 	for id in ids:
 		var p: Dictionary = Session.players[id]
-		var r := HBoxContainer.new()
-		r.add_theme_constant_override("separation", 10)
+		var r := HFlowContainer.new()
+		r.add_theme_constant_override("h_separation", 10)
 		var sw := ColorRect.new()
 		sw.color = InstrumentRig.COLORS.get(p.instrument, Color.WHITE)
 		sw.custom_minimum_size = Vector2(14, 14)
