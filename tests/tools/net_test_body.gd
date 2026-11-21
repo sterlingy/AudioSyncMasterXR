@@ -124,6 +124,19 @@ func _host() -> void:
 	check(Transport._pending_bpm == 100.0 or Transport.bpm == 100.0, "client's tempo request applied by the host")
 	check(r.master_layers == 1, "master layer reached the client too")
 
+	# Audio: the client streams a 440 Hz tone over AOO for a second.
+	channel.rpc_id(client_id, "report", {"cmd": "tone"})
+	var peak := 0.0
+	var st := {}
+	var t_end := Time.get_ticks_msec() + 3000
+	while Time.get_ticks_msec() < t_end:
+		await get_tree().process_frame
+		st = Session.audio.get_peer_stats(client_id) if Session.audio else {}
+		peak = maxf(peak, float(st.get("peak", 0.0)))
+	print("  audio: %s, peak %.2f" % [st, peak])
+	check(st.get("streaming", false), "client's audio stream arrives (AOO)")
+	check(peak > 0.2, "tone audible in the client's player stream")
+
 	channel.rpc("finish")
 	await wait(0.5)
 	Session.leave()
@@ -137,6 +150,9 @@ func _client() -> void:
 	MasterLooper.audio_out = false
 	var rig := make_rig("Comet")
 	Session.player_name = "Client"
+	channel.reported.connect(func(d):
+		if d.get("cmd") == "tone":
+			_tone())
 	channel.finished.connect(func():
 		Session.leave()
 		get_tree().quit(0))
@@ -163,5 +179,26 @@ func _client() -> void:
 	channel.rpc_id(1, "report", {"epoch": clock_epoch(), "offset": Transport.clock_offset, "estimate": Session.clock.offset, "epoch2": clock_epoch(),
 		"bound": Session.clock.error_bound(), "anchor_time": Transport.anchor_time, "running": Transport.running,
 		"param_id": info.id, "param_value": rig.synth.get_param(info.id), "master_layers": MasterLooper.layers.size()})
-	await wait(10.0)
+	await wait(15.0)
 	get_tree().quit(1)
+
+
+func _tone() -> void:
+	var a: Object = Session.audio
+	a.set_sending(true)
+	var phase := 0.0
+	var sent := 0
+	var t0 := Time.get_ticks_usec()
+	while Time.get_ticks_usec() - t0 < 2_000_000:
+		# Push what real time says is due, like a capture callback would.
+		var due := int((Time.get_ticks_usec() - t0) * 48000 / 1_000_000) - sent
+		if due > 0:
+			var buf := PackedVector2Array()
+			buf.resize(due)
+			for i in due:
+				var v := 0.5 * sin(phase)
+				phase += TAU * 440.0 / 48000.0
+				buf[i] = Vector2(v, v)
+			a.push_input(buf, 48000)
+			sent += due
+		await get_tree().process_frame

@@ -17,6 +17,12 @@ extends Node
 ##   `steady_timing` off, notes play the moment they arrive. Peers that can't
 ##   reach each other directly fall back to sending notes through the host.
 ##
+## Audio (voice, mics, real instruments): each player sends one AOO stream
+## to every other player (JamAudioLink, peer to peer, nothing mixed on a
+## server); each remote player's stream plays through its own player, so it
+## can sit at their avatar later. Off until the player turns "send my audio"
+## on; receiving is always ready.
+##
 ## Clock sync: clients ping the host on a dedicated UDP port (PORT + 1)
 ## handled by a thread that stamps packets on arrival (ClockLink), plus
 ## occasional pings over ENet as a fallback. ClockSync turns the exchanges
@@ -47,6 +53,13 @@ var clock := ClockSync.new()
 var status := "Not in a session"
 var notes_received := 0
 
+var audio: Object = null # JamAudioLink while in a session (null if jamcore was built without AOO)
+var send_audio := false
+var input_device := -1 # -1 = system default
+var input_channel := -1 # -1 = mix all channels
+var audio_buffer_ms := 15.0 # receive jitter buffer
+var audio_codec := "pcm16"
+var audio_error := ""
 var _udp := PacketPeerUDP.new()
 var _link: ClockLink
 var _host_ip := ""
@@ -111,6 +124,7 @@ func host(port := PORT) -> Error:
 	Transport.follower = false
 	MasterLooper.is_host = true
 	MasterLooper.local_owner = "1"
+	_start_audio(1)
 	players = {1: _local_info()}
 	_set_status("Hosting on port %d. Others join with this computer's IP: %s" % [port, ", ".join(local_addresses())])
 	players_changed.emit()
@@ -149,6 +163,9 @@ func leave() -> void:
 		multiplayer.multiplayer_peer.close()
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	_udp.close()
+	if audio:
+		audio.stop()
+		audio = null
 	if _link:
 		_link.stop()
 		_link = null
@@ -169,6 +186,7 @@ func _fail(text: String) -> void:
 
 func _on_connected() -> void:
 	MasterLooper.local_owner = str(my_id())
+	_start_audio(my_id())
 	players = {my_id(): _local_info()}
 	rpc_id(1, "_hello", _local_info())
 	_set_status("Connected to %s, syncing clocks…" % _host_ip)
@@ -186,11 +204,13 @@ func _on_peer_disconnected(id: int) -> void:
 
 func _local_info() -> Dictionary:
 	return {"id": my_id(), "name": player_name, "instrument": local_rig.instrument if local_rig else "Undertow",
-		"udp_port": _udp.get_local_port() if _udp.is_bound() else 0, "ip": ""}
+		"udp_port": _udp.get_local_port() if _udp.is_bound() else 0, "ip": "",
+		"audio_port": audio.get_port() if audio else 0}
 
 
 func _public(p: Dictionary) -> Dictionary:
-	return {"id": p.id, "name": p.name, "instrument": p.instrument, "udp_port": p.udp_port, "ip": p.ip}
+	return {"id": p.id, "name": p.name, "instrument": p.instrument, "udp_port": p.udp_port, "ip": p.ip,
+		"audio_port": p.get("audio_port", 0)}
 
 
 func _clean_info(info: Dictionary, id: int) -> Dictionary:
@@ -198,7 +218,8 @@ func _clean_info(info: Dictionary, id: int) -> Dictionary:
 	if not inst in JamSynth.get_instrument_types():
 		inst = "Undertow"
 	return {"id": id, "name": str(info.get("name", "Player")).left(24), "instrument": inst,
-		"udp_port": clampi(int(info.get("udp_port", 0)), 0, 65535), "ip": str(info.get("ip", ""))}
+		"udp_port": clampi(int(info.get("udp_port", 0)), 0, 65535), "ip": str(info.get("ip", "")),
+		"audio_port": clampi(int(info.get("audio_port", 0)), 0, 65535)}
 
 
 @rpc("any_peer", "reliable")
@@ -277,8 +298,9 @@ func _add_remote(info: Dictionary) -> void:
 	add_child(rig)
 	var p := info.duplicate()
 	p.merge({"rig": rig, "volume_db": 0.0, "muted": false, "rtt": -1.0, "lateness": [], "delay": 0.0,
-		"direct_in": false, "direct_out": false, "shift": {}, "last_late": 0.0})
+		"direct_in": false, "direct_out": false, "shift": {}, "last_late": 0.0, "voice": null})
 	players[info.id] = p
+	_connect_audio(p)
 	_update_audibility()
 	players_changed.emit()
 
@@ -288,6 +310,10 @@ func _remove_player(id: int) -> void:
 	if p.has("rig"):
 		p.rig.synth.all_notes_off()
 		p.rig.queue_free()
+	if p.get("voice"):
+		p.voice.queue_free()
+	if audio and p.has("rig"):
+		audio.remove_peer(id)
 	players.erase(id)
 	players_changed.emit()
 
@@ -327,6 +353,8 @@ func _update_audibility() -> void:
 			continue
 		var silent: bool = p.muted or MasterLooper.listen == MasterLooper.Listen.OWN_ONLY
 		p.rig.player.volume_db = -80.0 if silent else p.volume_db
+		if p.voice:
+			p.voice.volume_db = -80.0 if silent else p.volume_db
 		p.rig.looper.silenced = MasterLooper.listen != MasterLooper.Listen.MASTER_AND_LIVE
 
 
@@ -620,8 +648,11 @@ func _on_event(e: Dictionary, ip: String, port: int) -> void:
 			p.direct_in = true
 			if ip != "":
 				# Answer (and send notes) to where the packets really come from.
+				var moved: bool = p.ip != ip
 				p.ip = ip
 				p.udp_port = port
+				if moved:
+					_connect_audio(p)
 				_udp.set_dest_address(ip, port)
 				_udp.put_packet(pack(my_id(), Ev.ACK, 0, 0.0, e.t))
 		Ev.ACK:
@@ -686,6 +717,8 @@ func _process(delta: float) -> void:
 	if not is_online():
 		return
 	_poll_udp()
+	if audio:
+		audio.poll()
 	_t_ping -= delta
 	if role == Role.CLIENT and _t_ping <= 0.0 and multiplayer.get_unique_id() != 1 and \
 			multiplayer.multiplayer_peer.get_connection_status() == MultiplayerPeer.CONNECTION_CONNECTED:
@@ -720,6 +753,77 @@ func _process(delta: float) -> void:
 		_check_snapshots()
 
 
+# ---- Audio streams
+
+func _start_audio(id: int) -> void:
+	audio_error = ""
+	if not ClassDB.class_exists("JamAudioLink"):
+		audio_error = "Audio streaming isn't in this build."
+		return
+	audio = ClassDB.instantiate("JamAudioLink")
+	if audio.start(0, id) != OK:
+		audio_error = "Couldn't open a port for audio."
+		audio = null
+		return
+	audio.set_latency_ms(audio_buffer_ms)
+	audio.set_codec(audio_codec)
+	_apply_audio_input()
+
+
+## Starts receiving a remote player's stream (and sending ours to them).
+func _connect_audio(p: Dictionary) -> void:
+	if audio == null or p.get("audio_port", 0) <= 0 or p.ip == "":
+		return
+	audio.add_peer(p.id, p.ip, p.audio_port)
+	if p.voice == null:
+		p.voice = AudioStreamPlayer.new()
+		p.voice.name = "Voice%d" % p.id
+		add_child(p.voice)
+	p.voice.stream = audio.get_peer_stream(p.id)
+	p.voice.play()
+	_update_audibility()
+
+
+func set_send_audio(on: bool) -> void:
+	send_audio = on
+	_apply_audio_input()
+
+
+func set_input(device: int, channel: int) -> void:
+	input_device = device
+	input_channel = channel
+	if audio and audio.is_capturing():
+		audio.stop_capture()
+	_apply_audio_input()
+
+
+func set_audio_buffer_ms(ms: float) -> void:
+	audio_buffer_ms = ms
+	if audio:
+		audio.set_latency_ms(ms)
+
+
+func set_audio_codec(codec: String) -> void:
+	audio_codec = codec
+	if audio:
+		audio.set_codec(codec)
+
+
+func _apply_audio_input() -> void:
+	if audio == null:
+		return
+	if not send_audio:
+		audio.set_sending(false)
+		audio.stop_capture()
+		return
+	audio_error = ""
+	if audio.has_native_capture() and not audio.is_capturing():
+		if audio.start_capture(input_device, input_channel) != OK:
+			audio_error = "Input didn't start: " + audio.get_capture_error()
+			return
+	audio.set_sending(true)
+
+
 func clock_text() -> String:
 	var e := clock.error_bound() * 1000.0
 	return "to within 0.1 ms" if e < 0.1 else "to ±%.1f ms" % e
@@ -735,4 +839,11 @@ func latency_text(p: Dictionary) -> String:
 	parts.append("notes reach you in %.0f ms" % (ear * 1000.0))
 	if not p.direct_out:
 		parts.append("via host")
+	if audio:
+		var st: Dictionary = audio.get_peer_stats(p.id)
+		if st.get("streaming", false):
+			var one_way: float = maxf(st.get("rtt_ms", 0.0), 0.0) * 0.5
+			parts.append("audio ~%.0f ms" % (one_way + audio_buffer_ms + AudioServer.get_output_latency() * 1000.0))
+			if int(st.get("underruns", 0)) > 0:
+				parts.append("%d dropouts" % int(st.underruns))
 	return "  •  ".join(parts)

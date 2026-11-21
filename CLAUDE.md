@@ -23,10 +23,18 @@ This project is a multiplayer XR jam-session app built in Godot 4.7.2: remote mu
 
 ## Building
 - Godot: `C:\Users\sterl\Downloads\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe` (not on PATH).
+- AOO + Opus (once, or after updating `thirdparty/aoo`): `tools/build_aoo.ps1` (CMake from VS 2022) → `build/aoo-windows/`. Without it jamcore builds without `JamAudioLink`.
 - Extension: `scons -C jamcore platform=windows target=template_debug` from a VS 2022 developer environment (`tools/build.ps1` wraps it).
+- Tests: `tools/run_tests.ps1` (GUT) and the two-process session test `godot --headless --path . -s res://tests/tools/net_test.gd`.
 
 ## Current milestone
-M1 (synths, presets, panels, MIDI) done. M2 (shared clock, metronome, sequencers, quantize) done locally; network clock sync comes with M4. Next: M3 loopers.
+M1 (synths, presets, panels, MIDI), M2 (clock, metronome, sequencers, quantize), M3 (loopers) done. M4 (LAN sessions) done on Windows: `Session` autoload (ENet state, P2P UDP live notes, threaded clock sync), `JamAudioLink` (AOO audio per player, WASAPI capture). M4 leftovers: live-note receive on a native thread, audio loops for real instruments, WASAPI exclusive mode; Android capture waits for the headset. Next: M5 jam export.
+
+## Network model (read before touching `scripts/net/`)
+- Host = ENet server (port 47830 UDP), clock master, owner of tempo and the master looper. Clients' Transport is a `follower`: start/stop/tempo/meter become requests.
+- Sound, sequencer and finished loops are mirrored as snapshots and played from the shared clock on every client; only live notes travel in real time (30-byte UDP packets stamped with shared-clock time, adaptive jitter delay).
+- Clock pings use port 47831 and a receive thread (`ClockLink`); `Transport.clock_offset` = host clock minus ours.
+- Audio: one AOO source per player, one sink per remote player (sink id = sender's player id), on an ephemeral UDP port in `JamAudioLink`.
 
 ## Timing model (read before touching scheduling)
 - `JamSynth.get_time()` is a process-wide monotonic clock; every SynthCore locks its frame counter to it (DLL in `synth_core.h`), so `time_to_frame()` is consistent across all synths.

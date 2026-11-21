@@ -1,4 +1,7 @@
 #include "jam_synth.h"
+#ifdef JAM_HAVE_AOO
+#include "net/jam_audio_link.h"
+#endif
 #include <gdextension_interface.h>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/core/defs.hpp>
@@ -10,6 +13,11 @@ void initialize_jamcore(ModuleInitializationLevel p_level) {
 	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
 	GDREGISTER_CLASS(JamSynthPlayback);
 	GDREGISTER_CLASS(JamSynth);
+#ifdef JAM_HAVE_AOO
+	GDREGISTER_CLASS(JamNetStreamPlayback);
+	GDREGISTER_CLASS(JamNetStream);
+	GDREGISTER_CLASS(JamAudioLink);
+#endif
 }
 
 void uninitialize_jamcore(ModuleInitializationLevel p_level) {}

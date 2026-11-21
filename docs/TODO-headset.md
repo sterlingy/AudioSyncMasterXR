@@ -11,6 +11,11 @@ is skipped because no headset is available.
 4. **Bluetooth LE MIDI**: pair a BLE MIDI keyboard, then trigger `Midi.scan_bluetooth()` (needs a settings screen button). Accept the Bluetooth permission prompt.
 5. **Wi-Fi MIDI relay**: laptop sends (`net_send`), headset receives (on by default on Android). Ports 47820/47821 UDP.
 
+## Networking on the headset (M4 leftovers)
+6. **Build AOO for Android** (`tools/build_aoo.ps1 -Platform android`, then `tools/build.ps1 -Platform android`) so `JamAudioLink` is in the APK; until then the Android build joins sessions with notes only.
+7. **Mic capture on Android**: native AAudio/Oboe input feeding `JamAudioLink` (Windows uses WASAPI); fallback: Godot's microphone + `AudioEffectCapture` -> `JamAudioLink.push_input()`. Needs the record-audio permission prompt on device.
+8. **Wi-Fi latency**: join a session from the headset to a wired PC; read ping, note delay and audio dropouts in the Jam tab. Try audio buffer 10-30 ms and Opus vs PCM.
+
 ## XR milestone (M6), needs the headset to verify
 - XR scene with the Shivoo XR rig (`addons/shivoo_xr` submodule from `D:\Godot_Projects\ShivooXRPlugin`, plus godot-xr-tools 4.5.x and OpenXR Vendors 5.1.x copied from the template project).
 - Panels in 3D: the flat panels rendered into SubViewports on movable XR panels, operated by fingertip/pinch (pattern from ChordMasterXR's XR controls).

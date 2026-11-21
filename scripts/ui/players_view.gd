@@ -11,7 +11,13 @@ var _leave: Button
 var _status: Label
 var _list: VBoxContainer
 var _steady: CheckButton
-var _rows := {} # id -> {latency: Label}
+var _rows := {} # id -> latency Label
+var _send: CheckButton
+var _device: OptionButton
+var _channel: OptionButton
+var _in_meter: ProgressBar
+var _audio_info: Label
+var _in_peak := 0.0
 
 
 func _ready() -> void:
@@ -48,6 +54,58 @@ func _ready() -> void:
 	add_child(_status)
 
 	add_child(HSeparator.new())
+	add_child(_heading("MY AUDIO (mic, voice, real instrument)"))
+	var arow := HBoxContainer.new()
+	arow.add_theme_constant_override("separation", 8)
+	add_child(arow)
+	_send = CheckButton.new()
+	_send.text = "Send my audio"
+	_send.tooltip_text = "Stream your microphone or audio interface to everyone in the session"
+	_send.button_pressed = Session.send_audio
+	_send.toggled.connect(func(on): Session.set_send_audio(on))
+	arow.add_child(_send)
+	arow.add_child(_label("Input"))
+	_device = OptionButton.new()
+	_device.add_item("System default", 0)
+	if ClassDB.class_exists("JamAudioLink"):
+		var devs: PackedStringArray = ClassDB.class_call_static("JamAudioLink", "get_input_devices")
+		for i in devs.size():
+			_device.add_item(devs[i], i + 1)
+	_device.custom_minimum_size.x = 260
+	_device.item_selected.connect(func(_i): _input_changed())
+	arow.add_child(_device)
+	_channel = OptionButton.new()
+	for t in ["All channels", "Channel 1", "Channel 2", "Channel 3", "Channel 4"]:
+		_channel.add_item(t)
+	_channel.item_selected.connect(func(_i): _input_changed())
+	arow.add_child(_channel)
+	_in_meter = ProgressBar.new()
+	_in_meter.custom_minimum_size = Vector2(120, 14)
+	_in_meter.max_value = 1.0
+	_in_meter.show_percentage = false
+	_in_meter.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	arow.add_child(_in_meter)
+	arow.add_child(_label("   Format"))
+	var codec := OptionButton.new()
+	for c in [["PCM 16-bit (LAN)", "pcm16"], ["PCM 24-bit", "pcm24"], ["Opus 128k (Wi-Fi/internet)", "opus"]]:
+		codec.add_item(c[0])
+		codec.set_item_metadata(codec.item_count - 1, c[1])
+	codec.item_selected.connect(func(i): Session.set_audio_codec(codec.get_item_metadata(i)))
+	arow.add_child(codec)
+	arow.add_child(_label("   Buffer"))
+	var buf := SpinBox.new()
+	buf.min_value = 3
+	buf.max_value = 200
+	buf.value = Session.audio_buffer_ms
+	buf.suffix = "ms"
+	buf.tooltip_text = "How much of each player's audio is buffered before it plays. Smaller = less delay, more dropouts on busy networks."
+	buf.value_changed.connect(func(v): Session.set_audio_buffer_ms(v))
+	arow.add_child(buf)
+	_audio_info = Label.new()
+	_audio_info.add_theme_color_override("font_color", Color(1, 1, 1, 0.6))
+	add_child(_audio_info)
+
+	add_child(HSeparator.new())
 	add_child(_heading("PLAYERS"))
 	_steady = CheckButton.new()
 	_steady.text = "Steady timing (live notes wait out network jitter; off = play on arrival)"
@@ -60,6 +118,10 @@ func _ready() -> void:
 	Session.players_changed.connect(_rebuild)
 	Session.status_changed.connect(func(_t): _refresh())
 	_rebuild()
+
+
+func _input_changed() -> void:
+	Session.set_input(_device.get_selected_id() - 1, _channel.selected - 1)
 
 
 func _do_join() -> void:
@@ -126,6 +188,17 @@ func _refresh() -> void:
 func _process(_d: float) -> void:
 	if not is_visible_in_tree():
 		return
+	var a: Object = Session.audio
+	_in_peak = maxf(_in_peak * 0.85, a.take_input_peak() if a else 0.0)
+	_in_meter.value = _in_peak
+	if not Session.is_online():
+		_audio_info.text = "Join or host a session to send audio. Monitor yourself through your interface (direct monitoring); the app doesn't play your own input back."
+	elif Session.audio_error != "":
+		_audio_info.text = Session.audio_error
+	elif a and a.is_capturing():
+		_audio_info.text = "Sending: input period %.1f ms, %s. Use headphones so others don't hear themselves back." % [a.get_capture_period_ms(), a.get_codec()]
+	else:
+		_audio_info.text = "Not sending. Everyone else's audio still plays here."
 	for id in _rows:
 		if Session.players.has(id):
 			var t := Session.latency_text(Session.players[id])

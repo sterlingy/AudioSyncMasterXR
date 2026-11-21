@@ -168,6 +168,7 @@ Built on Windows desktop first; headset steps run once a headset is connected. B
 9. **M9: Interval mode, Android flat app, SFU for larger groups.**
 
 ## Decisions log
+- 2026-11-21 (M4): Live notes go peer to peer over UDP (not through the host) with shared-clock stamps and a per-sender jitter delay; sequencers and loops are mirrored and played from the clock, never streamed. Clock pings on their own port and thread. AOO built without its NET layer (the Session exchanges addresses). Default audio format PCM 16-bit on LAN, Opus selectable. A player's own input isn't played back (direct monitoring).
 - 2026-11-21: Instruments first; six instruments (two added for 6 players); one instrument per player for now; host controls tempo; record-time quantize always, live quantize optional; notes by default with audio fallback; passthrough + VR stage toggle; stylized 3D after flat panels; git stays local.
 
 ## Open questions
