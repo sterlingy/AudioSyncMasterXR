@@ -36,6 +36,12 @@ var lookahead := 0.12
 var follower := false
 
 var metronome_on := true
+## This player's click level (the click is local, so it's per player).
+var click_volume_db := 0.0:
+	set(v):
+		click_volume_db = clampf(v, -60.0, 6.0)
+		if click_player:
+			click_player.volume_db = click_volume_db
 var count_in_bars := 1
 var quantize_enabled := true # record-time quantize
 var quantize_grid := 0.25 # beats
@@ -50,6 +56,7 @@ var _clients: Array = [] # objects with schedule(from_beat, to_beat) and transpo
 var _scheduled_until := 0.0
 var _pending_bpm := 0.0
 var _pending_beat := 0.0
+var _taps: Array[float] = []
 
 
 func _ready() -> void:
@@ -57,6 +64,7 @@ func _ready() -> void:
 	click.instrument = "Metronome"
 	click_player = AudioStreamPlayer.new()
 	click_player.stream = click
+	click_player.volume_db = click_volume_db
 	add_child(click_player)
 	click_player.play()
 	lookahead = 0.1 + AudioServer.get_output_latency()
@@ -162,6 +170,24 @@ func set_tempo(new_bpm: float) -> void:
 		_pending_beat += beats_per_bar
 	_pending_bpm = new_bpm
 	state_dirty.emit()
+
+
+## Tap tempo: call on every tap. After two taps, returns the tempo from the
+## average gap of the last few taps (and sets it, or asks the host to); 0 until then.
+## A pause of more than 2 s starts over.
+func tap(at := -1.0) -> float:
+	var t := at if at >= 0.0 else JamSynth.get_time()
+	if not _taps.is_empty() and t - _taps[-1] > 2.0:
+		_taps.clear()
+	_taps.append(t)
+	if _taps.size() > 5:
+		_taps.pop_front()
+	if _taps.size() < 2:
+		return 0.0
+	var gap := (_taps[-1] - _taps[0]) / (_taps.size() - 1)
+	var b := clampf(roundf(60.0 / gap), 30.0, 300.0)
+	set_tempo(b)
+	return b
 
 
 func set_beats_per_bar(n: int) -> void:

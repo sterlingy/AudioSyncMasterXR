@@ -24,6 +24,8 @@ var _status: Label
 var _meter: ProgressBar
 var _cpu: Label
 var _tempo: SpinBox
+var _suggest_bar: HBoxContainer
+var _suggest_text: Label
 var _add_module: MenuButton
 var _presets: Array[Dictionary] = []
 var _share_dialog: AcceptDialog
@@ -63,6 +65,7 @@ func _ready() -> void:
 
 	root.add_child(_build_top_bar())
 	root.add_child(_build_transport_bar())
+	root.add_child(_build_suggest_bar())
 	_tabs = TabBar.new()
 	_tabs.add_tab("Sound")
 	_tabs.add_tab("Sequencer")
@@ -223,6 +226,11 @@ func _build_transport_bar() -> Control:
 	_tempo.value_changed.connect(func(v): Transport.set_tempo(v))
 	_link(Transport.tempo_changed, func(b): _tempo.set_value_no_signal(b))
 	bar.add_child(_tempo)
+	var tap := Button.new()
+	tap.text = "Tap"
+	tap.tooltip_text = "Tap a few times on the beat to set the tempo (in a session, the host approves it)"
+	tap.pressed.connect(func(): Transport.tap())
+	bar.add_child(tap)
 	bar.add_child(_lbl("Beats/Bar"))
 	var bpb := SpinBox.new()
 	bpb.min_value = 1
@@ -236,6 +244,17 @@ func _build_transport_bar() -> Control:
 	met.button_pressed = Transport.metronome_on
 	met.toggled.connect(func(t): Transport.metronome_on = t)
 	bar.add_child(met)
+	var cv := HSlider.new()
+	cv.min_value = -40
+	cv.max_value = 6
+	cv.value = Transport.click_volume_db
+	cv.custom_minimum_size.x = 70
+	cv.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	cv.tooltip_text = "Click volume (just for you)"
+	cv.value_changed.connect(func(v):
+		Transport.click_volume_db = v
+		Settings.set_value("click_volume_db", v))
+	bar.add_child(cv)
 	var ci := CheckButton.new()
 	ci.text = "Count-in"
 	ci.button_pressed = Transport.count_in_bars > 0
@@ -262,6 +281,42 @@ func _build_transport_bar() -> Control:
 	grid.item_selected.connect(apply)
 	live.toggled.connect(apply)
 	return bar
+
+
+## Host only: a player's tempo suggestion, with Accept / Ignore.
+func _build_suggest_bar() -> Control:
+	_suggest_bar = HBoxContainer.new()
+	_suggest_bar.add_theme_constant_override("separation", 8)
+	_suggest_bar.visible = false
+	_suggest_text = Label.new()
+	_suggest_text.add_theme_color_override("font_color", Color(1.0, 0.85, 0.4))
+	_suggest_bar.add_child(_suggest_text)
+	for pair in [["Accept", true], ["Ignore", false]]:
+		var b := Button.new()
+		b.text = pair[0]
+		b.pressed.connect(_answer_suggestion.bind(pair[1]))
+		_suggest_bar.add_child(b)
+	var always := CheckBox.new()
+	always.text = "Always accept"
+	always.button_pressed = not Session.approve_tempo
+	always.toggled.connect(func(t):
+		Session.approve_tempo = not t
+		Settings.set_value("approve_tempo", not t)
+		if t:
+			_answer_suggestion(true))
+	_suggest_bar.add_child(always)
+	_link(Session.tempo_suggested, _on_tempo_suggested)
+	return _suggest_bar
+
+
+func _on_tempo_suggested(_id: int, who: String, bpm: float) -> void:
+	_suggest_text.text = "%s suggests %d BPM" % [who, roundi(bpm)]
+	_suggest_bar.visible = true
+
+
+func _answer_suggestion(accept: bool) -> void:
+	Session.answer_suggestion(accept)
+	_suggest_bar.visible = false
 
 
 ## Connects to an autoload's signal and remembers it, so freeing this scene

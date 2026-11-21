@@ -20,6 +20,8 @@ const DEFAULTS := {
 	"audio_exclusive": false,
 	"audio_buffer_ms": 15.0,
 	"audio_codec": "pcm16",
+	"click_volume_db": 0.0,
+	"approve_tempo": true, # host: ask before applying a player's tempo change
 }
 
 var _cfg := ConfigFile.new()

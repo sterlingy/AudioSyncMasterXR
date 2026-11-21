@@ -36,6 +36,8 @@ extends Node
 
 signal players_changed
 signal status_changed(text: String)
+## Host: a player suggested a tempo (only when approve_tempo is on).
+signal tempo_suggested(id: int, who: String, bpm: float)
 
 enum Role { OFFLINE, HOST, CLIENT }
 enum Ev { ON, OFF, CC, BEND, HELLO, ACK }
@@ -54,6 +56,9 @@ var player_name := "Player"
 var local_rig: InstrumentRig
 var players := {} # peer id -> Dictionary; remote players also have "rig" and stats
 var steady_timing := true
+## Host: players' tempo changes wait for Accept (tempo_suggested); off = apply at once.
+var approve_tempo := true
+var suggestion := {} # host: the latest tempo suggestion {id, who, bpm}
 var clock := ClockSync.new()
 var status := "Not in a session"
 var notes_received := 0
@@ -95,6 +100,8 @@ func _ready() -> void:
 	input_exclusive = bool(Settings.get_value("audio_exclusive"))
 	audio_buffer_ms = float(Settings.get_value("audio_buffer_ms"))
 	audio_codec = str(Settings.get_value("audio_codec"))
+	approve_tempo = bool(Settings.get_value("approve_tempo"))
+	Transport.click_volume_db = float(Settings.get_value("click_volume_db"))
 	var dev_name := str(Settings.get_value("audio_device"))
 	if dev_name != "" and ClassDB.class_exists("JamAudioLink"):
 		input_device = Array(ClassDB.class_call_static("JamAudioLink", "get_input_devices")).find(dev_name)
@@ -525,9 +532,23 @@ func _transport_request(action: String, value: Variant) -> void:
 		"stop":
 			Transport.stop()
 		"tempo":
-			Transport.set_tempo(float(value))
+			var id := multiplayer.get_remote_sender_id()
+			var b := clampf(float(value), 30.0, 300.0)
+			if approve_tempo:
+				var who: String = players.get(id, {}).get("name", "A player")
+				suggestion = {"id": id, "who": who, "bpm": b}
+				tempo_suggested.emit(id, who, b)
+			else:
+				Transport.set_tempo(b)
 		"meter":
 			Transport.set_beats_per_bar(int(value))
+
+
+## Host: applies (true) or drops the pending tempo suggestion.
+func answer_suggestion(accept: bool) -> void:
+	if accept and not suggestion.is_empty() and is_host():
+		Transport.set_tempo(float(suggestion.bpm))
+	suggestion = {}
 
 
 # ---- Master looper

@@ -105,6 +105,10 @@ func _host() -> void:
 		get_tree().quit(1)
 		return
 	Transport.start()
+	var suggested: Array = [0.0]
+	Session.tempo_suggested.connect(func(_id, _who, b):
+		suggested[0] = b
+		Session.answer_suggestion(true))
 	var report: Array = [null]
 	channel.reported.connect(func(d): report[0] = d)
 	await wait_until(func(): return report[0] != null, 30.0)
@@ -154,7 +158,8 @@ func _host() -> void:
 	check(rrig.sequencer.has_note(0, 72), "sequencer edit mirrored")
 	var mine := MasterLooper.layers.filter(func(l): return l.owner == str(client_id))
 	check(mine.size() == 1 and mine[0].owner_name == "Client", "client's master-looper layer added by the host")
-	check(Transport._pending_bpm == 100.0 or Transport.bpm == 100.0, "client's tempo request applied by the host")
+	check(suggested[0] == 100.0, "client's tempo suggestion reached the host")
+	check(Transport._pending_bpm == 100.0 or Transport.bpm == 100.0, "accepted tempo suggestion applied by the host")
 	check(r.master_layers == 1, "master layer reached the client too")
 
 	# Audio: the client streams a 440 Hz tone over AOO for a second.

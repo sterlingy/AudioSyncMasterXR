@@ -149,3 +149,38 @@ func test_tangle_clock_follows_transport() -> void:
 			first = i
 			break
 	assert_almost_eq(float(first), 24000.0, 64.0)
+
+
+func test_tap_tempo() -> void:
+	Transport._taps.clear()
+	assert_eq(Transport.tap(10.0), 0.0, "one tap sets nothing")
+	Transport.tap(10.5)
+	Transport.tap(11.0)
+	assert_eq(Transport.tap(11.5), 120.0)
+	assert_eq(Transport.bpm, 120.0)
+	# A long pause starts over.
+	assert_eq(Transport.tap(20.0), 0.0)
+	assert_eq(Transport.tap(20.6), 100.0)
+	Transport._taps.clear()
+
+
+func test_tap_as_follower_asks_the_host() -> void:
+	Transport._taps.clear()
+	Transport.follower = true
+	var asked := []
+	var cb := func(action, value): asked.append([action, value])
+	Transport.request.connect(cb)
+	Transport.tap(5.0)
+	Transport.tap(5.75)
+	Transport.request.disconnect(cb)
+	Transport.follower = false
+	Transport._taps.clear()
+	assert_eq(asked, [["tempo", 80.0]])
+	assert_eq(Transport.bpm, 120.0, "a follower doesn't change tempo itself")
+
+
+func test_click_volume() -> void:
+	var was := Transport.click_volume_db
+	Transport.click_volume_db = -12.0
+	assert_eq(Transport.click_player.volume_db, -12.0)
+	Transport.click_volume_db = was
