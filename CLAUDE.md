@@ -28,7 +28,7 @@ This project is a multiplayer XR jam-session app built in Godot 4.7.2: remote mu
 - Tests: `tools/run_tests.ps1` (GUT) and the two-process session test `godot --headless --path . -s res://tests/tools/net_test.gd`. Two machines: host with `-- --remote`, client with `-- --join=<host IP>` (second machine: music-machine over ZeroTier, see memory).
 
 ## Current milestone
-M1-M5 done on Windows (synths; clock/sequencers/quantize; loopers incl. audio loops; LAN sessions with AOO audio, native-thread live notes, WASAPI shared/exclusive capture; jam recording to stems/mixdown/MIDI/session and preset QR codes). Android: arm64 build includes AOO, mic via Godot fallback, untested on a device. Next: M6 XR (needs the headset; see `docs/TODO-headset.md`), M7 3D instruments.
+M1-M5 done on Windows. Since then: tap tempo, click volume, host-approved tempo suggestions; interval mode (others heard exactly 1-2 bars later) with a high-latency hint; instrument audio mode; avatar pose sync delayed to each player's sound (`PoseBuffer`, `RemoteAvatar` placeholder); MIDI dialog (Bluetooth scan); M7 first pass (six Blender models in `assets/instruments`); touch/small-screen layout; M8 connection server with room codes and hole punching (`server/`). Two-machine tests run against music-machine over ZeroTier (`net_test.gd -- --remote` / `--join=`). Waiting on the user: where the connection server runs, real-sound-card buffer test. Next: M6 XR (needs the headset; see `docs/TODO-headset.md`), relay for strict NATs, M9.
 
 ## Network model (read before touching `scripts/net/`)
 - Host = ENet server (port 47830 UDP), clock master, owner of tempo and the master looper. Clients' Transport is a `follower`: start/stop/tempo/meter become requests.
@@ -36,6 +36,8 @@ M1-M5 done on Windows (synths; clock/sequencers/quantize; loopers incl. audio lo
 - Clock pings use port 47831 and a receive thread (`ClockLink`); `Transport.clock_offset` = host clock minus ours.
 - Audio: one AOO source per player, one sink per remote player (sink id = sender's player id), on an ephemeral UDP port in `JamAudioLink`. The same socket carries live notes; its network thread schedules them straight into the remote synth (`SynthCore::push_net`, a second SPSC queue).
 - Audio loops: `JamAudioLink` records all input into a 64 s timestamped ring; loopers cut bars from it (`get_input_audio`) and play clips on an internal `Clips` instrument. Clips go to peers once (zstd), never streamed.
+- Online: `Rendezvous` talks to `server/asm_server.py` (room codes, public addresses; JSON over UDP, `ASMR` registration packets from each socket). Players on different networks use each other's public audio address (`pub_audio`); HELLOs keep the holes open.
+- Interval mode (`Session.interval_bars`, host decides): native notes play at stamp + interval - output latency; each voice goes through a delay line in `JamNetStreamPlayback` sized to land one interval after it was played.
 - Jam recording: `SynthCore` logs events as they're applied and taps output; `JamStemRecorder` writes stems/mixdown while recording; `JamRecorder` (GDScript) writes MIDI and `session.json`.
 
 ## Timing model (read before touching scheduling)
