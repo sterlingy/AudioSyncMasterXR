@@ -25,7 +25,7 @@ This project is a multiplayer XR jam-session app built in Godot 4.7.2: remote mu
 - Godot: `C:\Users\sterl\Downloads\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe` (not on PATH).
 - AOO + Opus (once, or after updating `thirdparty/aoo`): `tools/build_aoo.ps1` (CMake from VS 2022) → `build/aoo-windows/`. Without it jamcore builds without `JamAudioLink`.
 - Extension: `scons -C jamcore platform=windows target=template_debug` from a VS 2022 developer environment (`tools/build.ps1` wraps it).
-- Tests: `tools/run_tests.ps1` (GUT) and the two-process session test `godot --headless --path . -s res://tests/tools/net_test.gd`.
+- Tests: `tools/run_tests.ps1` (GUT) and the two-process session test `godot --headless --path . -s res://tests/tools/net_test.gd`. Two machines: host with `-- --remote`, client with `-- --join=<host IP>` (second machine: music-machine over ZeroTier, see memory).
 
 ## Current milestone
 M1-M5 done on Windows (synths; clock/sequencers/quantize; loopers incl. audio loops; LAN sessions with AOO audio, native-thread live notes, WASAPI shared/exclusive capture; jam recording to stems/mixdown/MIDI/session and preset QR codes). Android: arm64 build includes AOO, mic via Godot fallback, untested on a device. Next: M6 XR (needs the headset; see `docs/TODO-headset.md`), M7 3D instruments.

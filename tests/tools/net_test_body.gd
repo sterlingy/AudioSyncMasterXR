@@ -1,5 +1,7 @@
 extends Node
 ## Body of tests/tools/net_test.gd (loaded at runtime so the autoloads exist).
+## Two machines: run the host with `-- --remote` and the client elsewhere with
+## `-- --join=<host IP>`; checks that need a shared wall clock become reports.
 
 const PORT := 47931
 const SKEW := 3.217
@@ -7,11 +9,21 @@ const NOTES := 24
 
 var channel: Node
 var is_client := false
+var remote := false # two machines: --remote on the host, --join=IP on the client
+var join_ip := "127.0.0.1"
 var failures := []
 
 
 func _ready() -> void:
-	is_client = "--client" in OS.get_cmdline_user_args()
+	var args := OS.get_cmdline_user_args()
+	is_client = "--client" in args
+	for a in args:
+		if a == "--remote":
+			remote = true
+		elif a.begins_with("--join="):
+			join_ip = a.trim_prefix("--join=")
+			is_client = true
+			remote = true
 	channel = preload("res://tests/tools/net_test_channel.gd").new()
 	channel.name = "NetTestChannel"
 	get_tree().root.add_child.call_deferred(channel)
@@ -77,14 +89,19 @@ func _host() -> void:
 		get_tree().quit(2)
 		return
 	Transport.clock_offset = SKEW
-	var exe := OS.get_executable_path()
-	var pid := OS.create_process(exe, ["--headless", "--path", ProjectSettings.globalize_path("res://"),
-		"-s", "res://tests/tools/net_test.gd", "--", "--client"])
-	print("host: started client process ", pid)
-	var joined := await wait_until(func(): return Session.players.size() == 2, 20.0)
+	var pid := -1
+	if remote:
+		print("host: waiting for a client on port %d (run with --join=<this IP>)" % PORT)
+	else:
+		var exe := OS.get_executable_path()
+		pid = OS.create_process(exe, ["--headless", "--path", ProjectSettings.globalize_path("res://"),
+			"-s", "res://tests/tools/net_test.gd", "--", "--client"])
+		print("host: started client process ", pid)
+	var joined := await wait_until(func(): return Session.players.size() == 2, 120.0 if remote else 20.0)
 	check(joined, "client joined")
 	if not joined:
-		OS.kill(pid)
+		if pid > 0:
+			OS.kill(pid)
 		get_tree().quit(1)
 		return
 	Transport.start()
@@ -94,7 +111,8 @@ func _host() -> void:
 	var r: Dictionary = report[0] if report[0] != null else {}
 	check(not r.is_empty(), "client reported")
 	if r.is_empty():
-		OS.kill(pid)
+		if pid > 0:
+			OS.kill(pid)
 		get_tree().quit(1)
 		return
 	var client_id: int = Session.players.keys().filter(func(k): return k != 1)[0]
@@ -103,10 +121,17 @@ func _host() -> void:
 
 	var true_offset: float = r.epoch - clock_epoch() + SKEW
 	var err: float = absf(r.offset - true_offset)
-	print("  clock: client offset %.4f s, true %.4f s, error %.3f ms (bound ±%.2f ms)" % [r.offset, true_offset, err * 1000.0, r.bound * 1000.0])
-	print("  clock: estimate error %.3f ms; wall-clock reference jitter %.3f ms" % [absf(r.estimate - true_offset) * 1000.0, absf(r.epoch2 - r.epoch) * 1000.0])
-	# The wall-clock reference itself can wobble by a fraction of a ms; allow for it.
-	check(err < 0.001 + absf(r.epoch2 - r.epoch), "clock offset within 1 ms")
+	if remote:
+		# Separate machines have separate wall clocks, so there's no ground truth:
+		# report the sync's own bound and how far Windows' clocks disagree.
+		print("  clock: client offset %.4f s, bound ±%.2f ms (best ping %.2f ms, %d samples)" % [r.offset, r.bound * 1000.0, r.rtt * 1000.0, r.samples])
+		print("  clock: Windows wall clocks differ by %.1f ms (information only)" % [err * 1000.0])
+		check(r.bound < 0.010, "clock sync bound under 10 ms")
+	else:
+		print("  clock: client offset %.4f s, true %.4f s, error %.3f ms (bound ±%.2f ms)" % [r.offset, true_offset, err * 1000.0, r.bound * 1000.0])
+		print("  clock: estimate error %.3f ms; wall-clock reference jitter %.3f ms" % [absf(r.estimate - true_offset) * 1000.0, absf(r.epoch2 - r.epoch) * 1000.0])
+		# The wall-clock reference itself can wobble by a fraction of a ms; allow for it.
+		check(err < 0.001 + absf(r.epoch2 - r.epoch), "clock offset within 1 ms")
 	check(absf(r.anchor_time - Transport.anchor_time) < 1e-6 and r.running, "client follows the host's tempo map")
 	check(p.instrument == "Comet" and rrig.instrument == "Comet", "client's instrument mirrored")
 	check(p.direct_out and p.direct_in, "direct UDP both ways")
@@ -114,7 +139,10 @@ func _host() -> void:
 	if Session.audio:
 		var ns: Dictionary = Session.audio.get_peer_stats(client_id)
 		print("  notes (native thread): last arrived %.2f ms after it was played; steady delay %.2f ms; ping %.2f ms" % [ns.last_late_ms, ns.note_delay_ms, ns.note_rtt_ms])
-		check(ns.note_delay_ms < 6.0, "native note delay under 6 ms on loopback")
+		if remote:
+			check(ns.note_delay_ms < ns.note_rtt_ms * 0.5 + 15.0, "native note delay within one-way trip + 15 ms")
+		else:
+			check(ns.note_delay_ms < 6.0, "native note delay under 6 ms on loopback")
 	var lat: Array = p.lateness
 	if not lat.is_empty():
 		var mx: float = lat.max()
@@ -130,15 +158,26 @@ func _host() -> void:
 	check(r.master_layers == 1, "master layer reached the client too")
 
 	# Audio: the client streams a 440 Hz tone over AOO for a second.
-	channel.rpc_id(client_id, "report", {"cmd": "tone"})
+	var tone_s := 20.0 if remote else 2.0
+	channel.rpc_id(client_id, "report", {"cmd": "tone", "seconds": tone_s})
 	var peak := 0.0
 	var st := {}
-	var t_end := Time.get_ticks_msec() + 3000
+	var under0 := -1
+	var lats := []
+	var t_end := Time.get_ticks_msec() + int((tone_s + 1.0) * 1000.0)
 	while Time.get_ticks_msec() < t_end:
 		await get_tree().process_frame
 		st = Session.audio.get_peer_stats(client_id) if Session.audio else {}
 		peak = maxf(peak, float(st.get("peak", 0.0)))
+		if st.get("streaming", false):
+			if under0 < 0:
+				under0 = int(st.get("underruns", 0))
+			lats.append(float(st.get("latency_ms", 0.0)))
 	print("  audio: %s, peak %.2f" % [st, peak])
+	if not lats.is_empty():
+		lats.sort()
+		print("  audio: latency median %.1f ms, max %.1f ms; underruns during the tone %d" % [
+			lats[lats.size() / 2], lats[-1], int(st.get("underruns", 0)) - maxi(under0, 0)])
 	check(st.get("streaming", false), "client's audio stream arrives (AOO)")
 	check(peak > 0.2, "tone audible in the client's player stream")
 
@@ -173,13 +212,13 @@ func _client() -> void:
 	Session.player_name = "Client"
 	channel.reported.connect(func(d):
 		if d.get("cmd") == "tone":
-			_tone(2.0)
+			_tone(float(d.get("seconds", 2.0)))
 		elif d.get("cmd") == "aloop":
 			_aloop())
 	channel.finished.connect(func():
 		Session.leave()
 		get_tree().quit(0))
-	Session.join("127.0.0.1", PORT)
+	Session.join(join_ip, PORT)
 	var ok := await wait_until(func(): return Session.clock.samples.size() >= 12 and Transport.running \
 			and Session.players.size() == 2 and Session.players[1].direct_out, 20.0)
 	if not ok:
@@ -200,9 +239,9 @@ func _client() -> void:
 	Transport.set_tempo(100.0)
 	await wait(0.8) # snapshots go out every 0.25 s
 	channel.rpc_id(1, "report", {"epoch": clock_epoch(), "offset": Transport.clock_offset, "estimate": Session.clock.offset, "epoch2": clock_epoch(),
-		"bound": Session.clock.error_bound(), "anchor_time": Transport.anchor_time, "running": Transport.running,
+		"bound": Session.clock.error_bound(), "rtt": Session.clock.rtt, "samples": Session.clock.samples.size(), "anchor_time": Transport.anchor_time, "running": Transport.running,
 		"param_id": info.id, "param_value": rig.synth.get_param(info.id), "master_layers": MasterLooper.layers.size()})
-	await wait(15.0)
+	await wait(90.0 if remote else 15.0) # the host sends "finish" when done
 	get_tree().quit(1)
 
 
