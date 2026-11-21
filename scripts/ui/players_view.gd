@@ -60,8 +60,8 @@ func _ready() -> void:
 	arow.add_theme_constant_override("separation", 8)
 	add_child(arow)
 	_send = CheckButton.new()
-	_send.text = "Send my audio"
-	_send.tooltip_text = "Stream your microphone or audio interface to everyone in the session"
+	_send.text = "Audio input on"
+	_send.tooltip_text = "Capture your microphone or audio interface: streamed to everyone while you're in a session, and recordable as audio loops (Looper tab)"
 	_send.button_pressed = Session.send_audio
 	_send.toggled.connect(func(on): Session.set_send_audio(on))
 	arow.add_child(_send)
@@ -203,8 +203,10 @@ func _process(_d: float) -> void:
 	var a: Object = Session.audio
 	_in_peak = maxf(_in_peak * 0.85, a.take_input_peak() if a else 0.0)
 	_in_meter.value = _in_peak
-	if not Session.is_online():
-		_audio_info.text = "Join or host a session to send audio. Monitor yourself through your interface (direct monitoring); the app doesn't play your own input back."
+	if Session.audio_error != "":
+		_audio_info.text = Session.audio_error
+	elif not Session.is_online():
+		_audio_info.text = ("Input on: you can record audio loops. " if a and a.is_capturing() else "") + "Host or join a session to stream your audio. Monitor yourself through your interface (direct monitoring); the app doesn't play your own input back."
 	elif Session.audio_error != "":
 		_audio_info.text = Session.audio_error
 	elif a and a.is_capturing():

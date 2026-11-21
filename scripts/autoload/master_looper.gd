@@ -41,7 +41,7 @@ func _online() -> bool:
 
 ## UI entry point: add a finished loop (through the host when in a session).
 func push(data: Dictionary) -> bool:
-	if data.get("events", []).is_empty():
+	if data.get("events", []).is_empty() and data.get("clips", []).is_empty():
 		return false
 	if _online():
 		net.master_push(data)
@@ -58,14 +58,20 @@ func request_remove(id: int) -> void:
 
 
 func add_layer(data: Dictionary, owner := "", id := -1, owner_name := "") -> int:
-	if data.get("events", []).is_empty() or not data.get("instrument", "") in JamSynth.get_instrument_types():
+	var audio: bool = data.get("kind", "notes") == "audio"
+	if (data.get("clips", []).is_empty() if audio else data.get("events", []).is_empty()):
+		return -1
+	if not data.get("instrument", "") in JamSynth.get_instrument_types():
 		return -1
 	if id < 0:
 		id = _next_id
 	_next_id = maxi(_next_id, id + 1)
 	var synth := JamSynth.new()
-	synth.instrument = data.instrument
+	synth.instrument = "Clips" if audio else data.instrument
 	synth.set_params(data.get("params", {}))
+	var clips: Array = data.get("clips", []) if audio else []
+	for i in mini(clips.size(), 64):
+		synth.clip_set(i, clips[i].samples, int(clips[i].rate))
 	synth.tempo = Transport.bpm
 	var player: AudioStreamPlayer = null
 	if audio_out:
@@ -75,7 +81,8 @@ func add_layer(data: Dictionary, owner := "", id := -1, owner_name := "") -> int
 		player.play()
 	var own := owner if owner != "" else local_owner
 	var layer := {"id": id, "owner": own, "owner_name": owner_name if owner_name != "" else own,
-		"instrument": data.instrument, "bars": maxi(1, int(data.bars)), "events": data.events,
+		"instrument": "Audio" if audio else data.instrument, "kind": "audio" if audio else "notes",
+		"bars": maxi(1, int(data.bars)), "events": data.get("events", []), "clips": clips,
 		"params": data.get("params", {}), "muted": false, "synth": synth, "player": player, "sounding": {}}
 	layers.append(layer)
 	changed.emit()
@@ -84,8 +91,9 @@ func add_layer(data: Dictionary, owner := "", id := -1, owner_name := "") -> int
 
 ## Layers in a form that can go over the network.
 func export_layer(l: Dictionary) -> Dictionary:
-	return {"id": l.id, "owner": l.owner, "owner_name": l.owner_name, "instrument": l.instrument,
-		"bars": l.bars, "events": l.events, "params": l.params}
+	return {"id": l.id, "owner": l.owner, "owner_name": l.owner_name,
+		"instrument": "Clips" if l.kind == "audio" else l.instrument, "kind": l.kind,
+		"bars": l.bars, "events": l.events, "params": l.params, "clips": l.clips}
 
 
 func export_layers() -> Array:
@@ -164,8 +172,13 @@ func schedule(from_beat: float, to_beat: float) -> void:
 		if not _audible(l):
 			continue
 		var L := float(l.bars * Transport.beats_per_bar)
-		var k := int(floorf(from_beat / L))
+		var k := int(floorf(from_beat / L)) - 1
 		while k * L < to_beat:
+			if l.kind == "audio":
+				for i in l.clips.size():
+					var cb: float = k * L + float(l.clips[i].get("at", 0.0))
+					if cb >= from_beat and cb < to_beat:
+						l.synth.clip_play(i, 1.0, Transport.frame_for(l.synth, cb), 0)
 			for e in l.events:
 				var b: float = k * L + e.b
 				if b < from_beat or b >= to_beat:

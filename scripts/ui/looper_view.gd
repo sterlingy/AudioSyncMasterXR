@@ -11,6 +11,7 @@ var _len: SpinBox
 var _state: Label
 var _master_list: VBoxContainer
 var _listen: OptionButton
+var _source: OptionButton
 
 
 func _ready() -> void:
@@ -47,6 +48,15 @@ func _ready() -> void:
 	_len.value_changed.connect(func(v): rig.looper.length_bars = int(v))
 	ctl.add_child(_len)
 	ctl.add_child(_button("Send to Master →", _push_master))
+	var srcl := Label.new()
+	srcl.text = "   Records"
+	ctl.add_child(srcl)
+	_source = OptionButton.new()
+	_source.add_item("Instrument notes")
+	_source.add_item("Audio input (mic / instrument)")
+	_source.tooltip_text = "What a new recording in an empty slot captures. Audio input needs \"Audio input on\" in the Jam tab."
+	_source.item_selected.connect(func(i): rig.looper.audio_input = i == 1)
+	ctl.add_child(_source)
 	_state = Label.new()
 	_state.add_theme_color_override("font_color", Color(1, 1, 1, 0.7))
 	add_child(_state)
@@ -109,7 +119,12 @@ func _refresh() -> void:
 	_rec.text = "● Overdub" if s.state in [Looper.State.PLAYING, Looper.State.STOPPED] else ("■ Stop Rec" if s.state in [Looper.State.RECORDING, Looper.State.OVERDUBBING] else "● Record")
 	_play.text = "■ Stop" if s.state in [Looper.State.PLAYING, Looper.State.OVERDUBBING, Looper.State.OVERDUB_ARMED] else "▶ Play"
 	var layers: int = s.layers.size()
-	_state.text = "Slot %d: %s, %d bar(s), %d layer(s). Recording starts and stops on bar lines; notes snap to the quantize grid." % [lp.current + 1, lp.state_name(s), s.bars, layers]
+	_source.select(1 if lp.audio_input else 0)
+	var what := "audio" if s.kind == "audio" else "notes"
+	_state.text = "Slot %d: %s (%s), %d bar(s), %d layer(s). Recording starts and stops on bar lines; %s" % [lp.current + 1, lp.state_name(s), what, s.bars, layers,
+		"audio is cut at the bar lines you heard." if s.kind == "audio" else "notes snap to the quantize grid."]
+	if lp.last_error != "":
+		_state.text = lp.last_error
 
 
 func _push_master() -> void:

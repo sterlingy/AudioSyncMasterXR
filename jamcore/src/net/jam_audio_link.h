@@ -11,6 +11,9 @@
 //   source or the right sink) and sends what the source and sinks queued.
 // - Input comes from native capture (WASAPI on Windows), or from Godot via
 //   push_input() where native capture isn't available.
+// - Every input sample also goes into a 64 s ring with a smoothed
+//   sample->time mapping, so loopers can cut out exactly the bars that were
+//   played (get_input_audio), whether or not we're in a session.
 #pragma once
 #include "audio_capture.h"
 #include "udp_socket.h"
@@ -129,7 +132,19 @@ class JamAudioLink : public RefCounted {
 	void net_loop();
 	void setup_source(int sample_rate);
 	void apply_format();
-	void feed(const float *mono, int frames, int sample_rate);
+	void feed(const float *mono, int frames, int sample_rate, double latency);
+
+	// Input recorder (writer: whichever thread feeds; reader: main thread).
+	std::vector<float> rec;
+	std::atomic<int64_t> rec_total{0};
+	bool rec_anchored = false;
+	double rec_at = 0.0;
+	int64_t rec_af = 0;
+	std::atomic<uint32_t> rec_seq{0};
+	std::atomic<double> rec_pub_t{0.0};
+	std::atomic<int64_t> rec_pub_f{0};
+	std::atomic<double> input_offset{0.0};
+	double capture_latency = 0.0;
 	static AooInt32 AOO_CALL send_fn(void *user, const AooByte *data, AooInt32 size, const void *address, AooAddrSize addrlen, AooFlag flags);
 	static void AOO_CALL source_event(void *user, const AooEvent *e, AooThreadLevel level);
 	static void AOO_CALL sink_event(void *user, const AooEvent *e, AooThreadLevel level);
@@ -142,6 +157,7 @@ public:
 	~JamAudioLink();
 
 	Error start(int port, int p_my_id);
+	void set_my_id(int id);
 	void stop();
 	bool is_running() const { return running.load(); }
 	int get_port() const { return sock.get_port(); }
@@ -161,6 +177,10 @@ public:
 	String get_capture_error() const { return String(capture.error().c_str()); }
 	double get_capture_period_ms() const { return capture_period_ms; }
 	void push_input(const PackedVector2Array &frames, int sample_rate);
+	Dictionary get_input_audio(double t0, double t1);
+	double get_input_time() const; // local time of the newest recorded sample (-1 if none)
+	void set_input_offset_ms(float ms) { input_offset = ms / 1000.0; }
+	float get_input_offset_ms() const { return (float)(input_offset.load() * 1000.0); }
 
 	void set_sending(bool on);
 	bool is_sending() const { return sending.load(); }

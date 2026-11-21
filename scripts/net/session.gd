@@ -113,6 +113,7 @@ func my_id() -> int:
 func bind_rig(rig: InstrumentRig) -> void:
 	local_rig = rig
 	rig.played.connect(_on_local_played)
+	rig.looper.clip_added.connect(func(id): _send_clip(0, id))
 	rig.instrument_changed.connect(func(t):
 		if players.has(my_id()):
 			players[my_id()].instrument = t
@@ -137,7 +138,9 @@ func host(port := PORT) -> Error:
 	Transport.follower = false
 	MasterLooper.is_host = true
 	MasterLooper.local_owner = "1"
-	_start_audio(1)
+	if _ensure_audio():
+		audio.set_my_id(1)
+		_apply_audio_input()
 	players = {1: _local_info()}
 	_set_status("Hosting on port %d. Others join with this computer's IP: %s" % [port, ", ".join(local_addresses())])
 	players_changed.emit()
@@ -177,8 +180,9 @@ func leave() -> void:
 	multiplayer.multiplayer_peer = OfflineMultiplayerPeer.new()
 	_udp.close()
 	if audio:
-		audio.stop()
-		audio = null
+		# The link stays (local input and its recording keep working offline).
+		audio.set_sending(false)
+		audio.set_my_id(1)
 	if _link:
 		_link.stop()
 		_link = null
@@ -199,7 +203,9 @@ func _fail(text: String) -> void:
 
 func _on_connected() -> void:
 	MasterLooper.local_owner = str(my_id())
-	_start_audio(my_id())
+	if _ensure_audio():
+		audio.set_my_id(my_id())
+		_apply_audio_input()
 	players = {my_id(): _local_info()}
 	rpc_id(1, "_hello", _local_info())
 	_set_status("Connected to %s, syncing clocks…" % _host_ip)
@@ -365,7 +371,7 @@ func _update_audibility() -> void:
 		if not p.has("rig"):
 			continue
 		var silent: bool = p.muted or MasterLooper.listen == MasterLooper.Listen.OWN_ONLY
-		p.rig.player.volume_db = -80.0 if silent else p.volume_db
+		p.rig.set_volume_db(-80.0 if silent else p.volume_db)
 		if p.voice:
 			p.voice.volume_db = -80.0 if silent else p.volume_db
 		p.rig.looper.silenced = MasterLooper.listen != MasterLooper.Listen.MASTER_AND_LIVE
@@ -388,6 +394,8 @@ func _snapshot_data(kind: String) -> Variant:
 func _send_snapshots(id: int) -> void:
 	if local_rig == null:
 		return
+	for clip_id in local_rig.looper.used_clips():
+		_send_clip(id, clip_id)
 	for kind in SNAPSHOT_KINDS:
 		var d: Variant = _snapshot_data(kind)
 		if id == 0:
@@ -457,6 +465,28 @@ static func apply_sound(rig: InstrumentRig, params: Dictionary, memo: Dictionary
 		for k in ps:
 			if not is_equal_approx(rig.synth.tangle_get_param(int(m.id), k), float(ps[k])):
 				rig.synth.tangle_set_param(int(m.id), k, float(ps[k]))
+
+
+## Sends one of our audio-loop clips (float samples, zstd) to one peer or all (0).
+func _send_clip(to: int, clip_id: int) -> void:
+	if not is_online() or players.size() < 2 or not local_rig.looper.clips.has(clip_id):
+		return
+	var c: Dictionary = local_rig.looper.clips[clip_id]
+	var raw: PackedByteArray = c.samples.to_byte_array()
+	var packed := raw.compress(FileAccess.COMPRESSION_ZSTD)
+	if to == 0:
+		rpc("_clip", clip_id, packed, raw.size(), int(c.rate))
+	else:
+		rpc_id(to, "_clip", clip_id, packed, raw.size(), int(c.rate))
+
+
+@rpc("any_peer", "reliable")
+func _clip(clip_id: int, packed: PackedByteArray, size: int, rate: int) -> void:
+	var p: Dictionary = players.get(multiplayer.get_remote_sender_id(), {})
+	if not p.has("rig") or size <= 0 or size > 48000 * 4 * 120 or rate < 8000 or rate > 192000:
+		return
+	var samples := packed.decompress(size, FileAccess.COMPRESSION_ZSTD).to_float32_array()
+	p.rig.looper.add_clip(samples, rate, clip_id)
 
 
 @rpc("any_peer", "unreliable_ordered", "call_remote", CH_NOTES)
@@ -784,19 +814,22 @@ func _process(delta: float) -> void:
 
 # ---- Audio streams
 
-func _start_audio(id: int) -> void:
-	audio_error = ""
+## The audio link: made on first use (input turned on, or a session), then
+## kept, so audio input and its recording (audio loops) work offline too.
+func _ensure_audio() -> bool:
+	if audio:
+		return true
 	if not ClassDB.class_exists("JamAudioLink"):
-		audio_error = "Audio streaming isn't in this build."
-		return
+		audio_error = "Audio input isn't in this build."
+		return false
 	audio = ClassDB.instantiate("JamAudioLink")
-	if audio.start(0, id) != OK:
+	if audio.start(0, my_id()) != OK:
 		audio_error = "Couldn't open a port for audio."
 		audio = null
-		return
+		return false
 	audio.set_latency_ms(audio_buffer_ms)
 	audio.set_codec(audio_codec)
-	_apply_audio_input()
+	return true
 
 
 ## Starts receiving a remote player's stream (and sending ours to them).
@@ -846,19 +879,22 @@ func set_audio_codec(codec: String) -> void:
 		audio.set_codec(codec)
 
 
+## `send_audio` is "my audio input is on": captured always (meter, audio
+## loops), and sent to the others while in a session.
 func _apply_audio_input() -> void:
-	if audio == null:
-		return
 	if not send_audio:
-		audio.set_sending(false)
-		audio.stop_capture()
+		if audio:
+			audio.set_sending(false)
+			audio.stop_capture()
+		return
+	if not _ensure_audio():
 		return
 	audio_error = ""
 	if audio.has_native_capture() and not audio.is_capturing():
 		if audio.start_capture(input_device, input_channel, input_exclusive) != OK:
 			audio_error = "Input didn't start: " + audio.get_capture_error()
 			return
-	audio.set_sending(true)
+	audio.set_sending(is_online())
 
 
 func clock_text() -> String:

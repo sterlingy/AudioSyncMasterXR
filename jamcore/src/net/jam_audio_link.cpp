@@ -115,7 +115,18 @@ void JamAudioLink::stop() {
 	sending = false;
 }
 
+void JamAudioLink::set_my_id(int id) {
+	my_id = id;
+	if (source) source->setId(id);
+}
+
 void JamAudioLink::setup_source(int sample_rate) {
+	if (sample_rate != source_rate || rec.empty()) {
+		rec.assign((size_t)sample_rate * 64, 0.0f);
+		rec_total = 0;
+		rec_anchored = false;
+		rec_seq = 0;
+	}
 	source_rate = sample_rate;
 	source->setup(1, sample_rate, MAX_BLOCK, 0);
 	source->setBufferSize(0.05);
@@ -409,8 +420,35 @@ PackedStringArray JamAudioLink::get_input_devices() {
 
 bool JamAudioLink::has_native_capture() { return jam::AudioCapture::supported(); }
 
-void JamAudioLink::feed(const float *mono, int frames, int sample_rate) {
-	if (!source || sample_rate != source_rate) return;
+void JamAudioLink::feed(const float *mono, int frames, int sample_rate, double latency) {
+	if (!source || sample_rate != source_rate || rec.empty()) return;
+	// Recorder: the last sample of this block reached the converter about
+	// `latency` ago; smooth that into a sample->time line (like SynthCore's DLL).
+	{
+		const int64_t total = rec_total.load(std::memory_order_relaxed);
+		const size_t size = rec.size();
+		const float g0 = input_gain.load(std::memory_order_relaxed);
+		for (int i = 0; i < frames; i++) rec[(size_t)((total + i) % (int64_t)size)] = mono[i] * g0;
+		const int64_t end = total + frames;
+		const double t_end = jam::mono_seconds() - latency - input_offset.load(std::memory_order_relaxed);
+		double t;
+		if (!rec_anchored) {
+			t = t_end;
+			rec_anchored = true;
+		} else {
+			const double predicted = rec_at + (double)(end - rec_af) / sample_rate;
+			const double err = t_end - predicted;
+			t = (err > 0.05 || err < -0.05) ? t_end : predicted + err * 0.01;
+		}
+		rec_at = t;
+		rec_af = end;
+		const uint32_t s = rec_seq.load(std::memory_order_relaxed);
+		rec_seq.store(s + 1, std::memory_order_release);
+		rec_pub_t.store(t, std::memory_order_relaxed);
+		rec_pub_f.store(end, std::memory_order_relaxed);
+		rec_seq.store(s + 2, std::memory_order_release);
+		rec_total.store(end, std::memory_order_release);
+	}
 	static thread_local std::vector<float> scratch(MAX_BLOCK);
 	const float g = input_gain.load(std::memory_order_relaxed);
 	float pk = 0.0f;
@@ -435,7 +473,7 @@ Error JamAudioLink::start_capture(int device, int channel, bool exclusive) {
 	capture.stop();
 	capture_ready = false; // until the source matches the device's rate
 	if (!capture.start(device, channel, [this](const float *mono, int frames, int sr) {
-			if (capture_ready.load(std::memory_order_acquire)) feed(mono, frames, sr);
+			if (capture_ready.load(std::memory_order_acquire)) feed(mono, frames, sr, capture_latency);
 		}, exclusive)) {
 		return ERR_CANT_OPEN;
 	}
@@ -443,6 +481,7 @@ Error JamAudioLink::start_capture(int device, int channel, bool exclusive) {
 	capture_channel = channel;
 	capture_exclusive = exclusive;
 	capture_period_ms = capture.period_ms();
+	capture_latency = capture_period_ms / 1000.0 + 0.001; // one buffer + converter
 	setup_source(capture.sample_rate());
 	capture_ready.store(true, std::memory_order_release);
 	return OK;
@@ -459,7 +498,49 @@ void JamAudioLink::push_input(const PackedVector2Array &frames, int sample_rate)
 	static thread_local std::vector<float> mono;
 	mono.resize(frames.size());
 	for (int i = 0; i < frames.size(); i++) mono[i] = 0.5f * (frames[i].x + frames[i].y);
-	feed(mono.data(), (int)mono.size(), sample_rate);
+	feed(mono.data(), (int)mono.size(), sample_rate, 0.0);
+}
+
+// Main thread. Input between local times t0 and t1 (JamSynth.get_time()),
+// as {samples: PackedFloat32Array, rate, complete}. Missing parts are silent.
+Dictionary JamAudioLink::get_input_audio(double t0, double t1) {
+	Dictionary d;
+	PackedFloat32Array out;
+	d["rate"] = source_rate;
+	d["complete"] = false;
+	if (rec.empty() || t1 <= t0 || t1 - t0 > 60.0) {
+		d["samples"] = out;
+		return d;
+	}
+	double at = 0.0;
+	int64_t af = 0;
+	bool ok = false;
+	for (int tries = 0; tries < 8 && !ok; tries++) {
+		const uint32_t s1 = rec_seq.load(std::memory_order_acquire);
+		if (s1 == 0) break;
+		if (s1 & 1) continue;
+		at = rec_pub_t.load(std::memory_order_relaxed);
+		af = rec_pub_f.load(std::memory_order_relaxed);
+		ok = rec_seq.load(std::memory_order_acquire) == s1;
+	}
+	const int64_t f0 = af + (int64_t)std::llround((t0 - at) * source_rate);
+	const int64_t n = (int64_t)std::llround((t1 - t0) * source_rate);
+	out.resize(n);
+	float *w = out.ptrw();
+	const int64_t total = rec_total.load(std::memory_order_acquire);
+	const int64_t size = (int64_t)rec.size();
+	for (int64_t i = 0; i < n; i++) {
+		const int64_t f = f0 + i;
+		w[i] = (ok && f >= 0 && f < total && f >= total - size) ? rec[(size_t)(f % size)] : 0.0f;
+	}
+	d["samples"] = out;
+	d["complete"] = ok && f0 >= std::max<int64_t>(0, total - size) && f0 + n <= total;
+	return d;
+}
+
+double JamAudioLink::get_input_time() const {
+	if (rec_seq.load(std::memory_order_acquire) == 0) return -1.0;
+	return rec_pub_t.load(std::memory_order_relaxed);
 }
 
 void JamAudioLink::set_sending(bool on) {
@@ -513,6 +594,11 @@ void JamAudioLink::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_capture_error"), &JamAudioLink::get_capture_error);
 	ClassDB::bind_method(D_METHOD("get_capture_period_ms"), &JamAudioLink::get_capture_period_ms);
 	ClassDB::bind_method(D_METHOD("push_input", "frames", "sample_rate"), &JamAudioLink::push_input);
+	ClassDB::bind_method(D_METHOD("get_input_audio", "t0", "t1"), &JamAudioLink::get_input_audio);
+	ClassDB::bind_method(D_METHOD("get_input_time"), &JamAudioLink::get_input_time);
+	ClassDB::bind_method(D_METHOD("set_input_offset_ms", "ms"), &JamAudioLink::set_input_offset_ms);
+	ClassDB::bind_method(D_METHOD("get_input_offset_ms"), &JamAudioLink::get_input_offset_ms);
+	ClassDB::bind_method(D_METHOD("set_my_id", "id"), &JamAudioLink::set_my_id);
 	ClassDB::bind_method(D_METHOD("set_sending", "on"), &JamAudioLink::set_sending);
 	ClassDB::bind_method(D_METHOD("is_sending"), &JamAudioLink::is_sending);
 	ClassDB::bind_method(D_METHOD("set_input_gain", "gain"), &JamAudioLink::set_input_gain);

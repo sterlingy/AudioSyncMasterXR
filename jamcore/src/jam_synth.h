@@ -77,6 +77,12 @@ public:
 	void set_params(const Dictionary &params);
 	void reset_params();
 
+	// Clips instrument (audio loops): mono samples at `sample_rate`, resampled
+	// to the engine rate here; then note_on(slot) plays the clip.
+	bool clip_set(int slot, const PackedFloat32Array &samples, float sample_rate);
+	void clip_clear(int slot);
+	void clip_play(int slot, float gain, int64_t frame, int offset);
+
 	// Playing. frame = absolute engine frame (see get_frame_position); -1 = now.
 	void note_on(int note, float velocity = 1.0f, int64_t frame = -1);
 	void note_off(int note, int64_t frame = -1);

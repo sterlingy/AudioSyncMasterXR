@@ -1,4 +1,5 @@
 #include "jam_synth.h"
+#include "instruments/clips.h"
 #include <godot_cpp/classes/audio_server.hpp>
 #include <godot_cpp/core/class_db.hpp>
 #include <godot_cpp/variant/utility_functions.hpp>
@@ -122,8 +123,66 @@ void JamSynth::ensure_rate(float sr) const {
 	if (tangle) tangle->sample_rate = sr;
 }
 
+bool JamSynth::clip_set(int slot, const PackedFloat32Array &samples, float sample_rate) {
+	if (instrument_type != "Clips" || !main_inst || slot < 0 || slot >= jam::ClipPlayer::SLOTS || sample_rate <= 0.0f) return false;
+	static_cast<jam::ClipPlayer *>(main_inst)->collect();
+	auto *clip = new jam::Clip();
+	const double ratio = sample_rate / core->sample_rate;
+	const int64_t n = samples.size();
+	const int64_t out_n = (int64_t)(n / ratio);
+	clip->data.resize((size_t)std::max<int64_t>(out_n, 0));
+	const float *src = samples.ptr();
+	for (int64_t i = 0; i < out_n; i++) {
+		const double x = i * ratio;
+		const int64_t k = (int64_t)x;
+		const float f = (float)(x - k);
+		const float a = src[std::min(k, n - 1)], b = src[std::min(k + 1, n - 1)];
+		clip->data[(size_t)i] = a + (b - a) * f;
+	}
+	// 2 ms fades at both ends so loop boundaries never click.
+	const size_t fade = std::min<size_t>((size_t)(0.002f * core->sample_rate), clip->data.size() / 2);
+	for (size_t i = 0; i < fade; i++) {
+		const float g = (float)i / (float)fade;
+		clip->data[i] *= g;
+		clip->data[clip->data.size() - 1 - i] *= g;
+	}
+	jam::Event e;
+	e.type = jam::EV_CUSTOM;
+	e.a = slot;
+	e.value = -1.0f;
+	e.ptr = clip;
+	if (!core->push(e)) {
+		delete clip;
+		return false;
+	}
+	return true;
+}
+
+void JamSynth::clip_clear(int slot) {
+	if (instrument_type != "Clips" || !main_inst) return;
+	static_cast<jam::ClipPlayer *>(main_inst)->collect();
+	jam::Event e;
+	e.type = jam::EV_CUSTOM;
+	e.a = slot;
+	e.value = -1.0f;
+	e.ptr = nullptr;
+	core->push(e);
+}
+
+void JamSynth::clip_play(int slot, float gain, int64_t frame, int offset) {
+	if (instrument_type != "Clips") return;
+	jam::Event e;
+	e.type = jam::EV_CUSTOM;
+	e.a = slot;
+	e.b = offset;
+	e.value = std::max(0.0f, gain);
+	e.frame = frame;
+	core->push(e);
+}
+
 void JamSynth::collect() {
 	core->collect_garbage();
+	if (main_inst && instrument_type == "Clips") static_cast<jam::ClipPlayer *>(main_inst)->collect();
 	if (tangle && main_inst) tangle->collect(static_cast<jam::TangleInstrument *>(main_inst));
 }
 
@@ -534,6 +593,9 @@ void JamSynth::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_cpu_load"), &JamSynth::get_cpu_load);
 	ClassDB::bind_method(D_METHOD("is_playing"), &JamSynth::is_playing);
 	ClassDB::bind_method(D_METHOD("render_offline", "frames", "sample_rate"), &JamSynth::render_offline, DEFVAL(48000.0f));
+	ClassDB::bind_method(D_METHOD("clip_set", "slot", "samples", "sample_rate"), &JamSynth::clip_set);
+	ClassDB::bind_method(D_METHOD("clip_clear", "slot"), &JamSynth::clip_clear);
+	ClassDB::bind_method(D_METHOD("clip_play", "slot", "gain", "frame", "offset"), &JamSynth::clip_play, DEFVAL(1.0f), DEFVAL(-1), DEFVAL(0));
 
 	ClassDB::bind_method(D_METHOD("tangle_get_module_types"), &JamSynth::tangle_get_module_types);
 	ClassDB::bind_method(D_METHOD("tangle_add_module", "type", "position"), &JamSynth::tangle_add_module, DEFVAL(Vector2()));
@@ -548,7 +610,7 @@ void JamSynth::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("tangle_clear"), &JamSynth::tangle_clear);
 	ClassDB::bind_method(D_METHOD("tangle_load_default"), &JamSynth::tangle_load_default);
 
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "instrument", PROPERTY_HINT_ENUM, "Undertow,Comet,Lumen,Pulsar,Driftwood,Tangle,Metronome"), "set_instrument", "get_instrument");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "instrument", PROPERTY_HINT_ENUM, "Undertow,Comet,Lumen,Pulsar,Driftwood,Tangle,Metronome,Clips"), "set_instrument", "get_instrument");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "volume_db", PROPERTY_HINT_RANGE, "-60,12,0.1,suffix:dB"), "set_volume_db", "get_volume_db");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tempo", PROPERTY_HINT_RANGE, "20,400,0.1,suffix:BPM"), "set_tempo", "get_tempo");
 }

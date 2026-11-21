@@ -35,6 +35,8 @@ var remote := false
 
 var synth := JamSynth.new()
 var player: Node
+var clip_player: Node # plays audio loops (created on first use)
+var _clips: JamSynth
 var sequencer: StepSequencer
 var looper: Looper
 var _patterns := {} # instrument type -> sequencer dict (each instrument keeps its own pattern)
@@ -78,6 +80,37 @@ func _ready() -> void:
 
 func _exit_tree() -> void:
 	Transport.unregister(self)
+
+
+func _process(_delta: float) -> void:
+	looper.poll()
+
+
+## The Clips synth that plays this player's audio loops (made on first use).
+func clip_synth() -> JamSynth:
+	if _clips == null:
+		_clips = JamSynth.new()
+		_clips.instrument = "Clips"
+		if is_inside_tree():
+			var p: Node = AudioStreamPlayer3D.new() if spatial else AudioStreamPlayer.new()
+			p.stream = _clips
+			add_child(p)
+			p.play()
+			clip_player = p
+			if player:
+				p.volume_db = player.volume_db
+	return _clips
+
+
+func has_clips() -> bool:
+	return _clips != null
+
+
+## Volume for everything this player makes here (instrument and audio loops).
+func set_volume_db(db: float) -> void:
+	player.volume_db = db
+	if clip_player:
+		clip_player.volume_db = db
 
 
 func set_instrument(type: String) -> void:

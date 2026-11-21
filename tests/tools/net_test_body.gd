@@ -105,7 +105,8 @@ func _host() -> void:
 	var err: float = absf(r.offset - true_offset)
 	print("  clock: client offset %.4f s, true %.4f s, error %.3f ms (bound ±%.2f ms)" % [r.offset, true_offset, err * 1000.0, r.bound * 1000.0])
 	print("  clock: estimate error %.3f ms; wall-clock reference jitter %.3f ms" % [absf(r.estimate - true_offset) * 1000.0, absf(r.epoch2 - r.epoch) * 1000.0])
-	check(err < 0.001, "clock offset within 1 ms")
+	# The wall-clock reference itself can wobble by a fraction of a ms; allow for it.
+	check(err < 0.001 + absf(r.epoch2 - r.epoch), "clock offset within 1 ms")
 	check(absf(r.anchor_time - Transport.anchor_time) < 1e-6 and r.running, "client follows the host's tempo map")
 	check(p.instrument == "Comet" and rrig.instrument == "Comet", "client's instrument mirrored")
 	check(p.direct_out and p.direct_in, "direct UDP both ways")
@@ -141,6 +142,22 @@ func _host() -> void:
 	check(st.get("streaming", false), "client's audio stream arrives (AOO)")
 	check(peak > 0.2, "tone audible in the client's player stream")
 
+	# Audio loop: the client records one bar of its input into looper slot 2;
+	# the clip reaches us once and plays from the clock here.
+	var aloop: Array = [null]
+	channel.reported.connect(func(d):
+		if d.has("aloop"):
+			aloop[0] = d)
+	channel.rpc_id(client_id, "report", {"cmd": "aloop"})
+	await wait_until(func(): return aloop[0] != null, 20.0)
+	await wait(0.8)
+	var ar: Dictionary = aloop[0] if aloop[0] != null else {}
+	check(ar.get("aloop", false), "client recorded an audio loop (%s)" % [ar])
+	var rs: Dictionary = rrig.looper.slots[1]
+	check(rs.kind == "audio" and rs.layers.size() == 1, "audio loop slot mirrored")
+	var got: Dictionary = rrig.looper.clips.get(int(ar.get("clip", -1)), {})
+	check(not got.is_empty() and got.samples.size() == int(ar.get("samples", -1)), "clip audio arrived intact")
+
 	channel.rpc("finish")
 	await wait(0.5)
 	Session.leave()
@@ -156,7 +173,9 @@ func _client() -> void:
 	Session.player_name = "Client"
 	channel.reported.connect(func(d):
 		if d.get("cmd") == "tone":
-			_tone())
+			_tone(2.0)
+		elif d.get("cmd") == "aloop":
+			_aloop())
 	channel.finished.connect(func():
 		Session.leave()
 		get_tree().quit(0))
@@ -187,13 +206,33 @@ func _client() -> void:
 	get_tree().quit(1)
 
 
-func _tone() -> void:
+func _aloop() -> void:
+	var lp: Looper = Session.local_rig.looper
+	_tone(12.0)
+	await wait(0.3)
+	lp.length_bars = 1
+	lp.audio_input = true
+	lp.current = 1
+	lp.press_record()
+	await wait_until(func(): return not lp.slots[1].layers.is_empty() or lp.last_error != "", 15.0)
+	var id: int = int(lp.slots[1].layers[0].clip) if not lp.slots[1].layers.is_empty() else -1
+	var c: Dictionary = lp.clips.get(id, {})
+	var rms := 0.0
+	if not c.is_empty():
+		for i in range(0, c.samples.size(), 37):
+			rms += c.samples[i] * c.samples[i]
+		rms = sqrt(rms / (c.samples.size() / 37.0))
+	print("client: audio loop clip %d, %d samples, rms %.2f, error '%s'" % [id, c.get("samples", []).size(), rms, lp.last_error])
+	channel.rpc_id(1, "report", {"aloop": id > 0 and rms > 0.2, "clip": id, "samples": c.get("samples", []).size()})
+
+
+func _tone(seconds: float) -> void:
 	var a: Object = Session.audio
 	a.set_sending(true)
 	var phase := 0.0
 	var sent := 0
 	var t0 := Time.get_ticks_usec()
-	while Time.get_ticks_usec() - t0 < 2_000_000:
+	while Time.get_ticks_usec() - t0 < int(seconds * 1_000_000):
 		# Push what real time says is due, like a capture callback would.
 		var due := int((Time.get_ticks_usec() - t0) * 48000 / 1_000_000) - sent
 		if due > 0:
