@@ -33,6 +33,7 @@ const MAP_PATH := "user://midi_map.cfg"
 var synth := JamSynth.new()
 var player: Node
 var sequencer: StepSequencer
+var looper: Looper
 var _patterns := {} # instrument type -> sequencer dict (each instrument keeps its own pattern)
 var _seq_loaded := false
 var _live_shift := {} # note -> frames a live-quantized note was delayed by
@@ -55,6 +56,8 @@ func _ready() -> void:
 		player = p
 	add_child(player)
 	sequencer = StepSequencer.new(self)
+	looper = Looper.new(self)
+	played.connect(looper.capture)
 	Transport.register(self)
 	Transport.tempo_changed.connect(func(bpm): synth.tempo = bpm)
 	synth.tempo = Transport.bpm
@@ -134,10 +137,12 @@ func schedule(from_beat: float, to_beat: float) -> void:
 	# Keep Tangle's clock modules locked to the session (cheap: one event per frame).
 	synth.sync_transport(from_beat, Transport.frame_for(synth, from_beat))
 	sequencer.schedule(from_beat, to_beat)
+	looper.schedule(from_beat, to_beat)
 
 
 func transport_stopped() -> void:
 	sequencer.transport_stopped()
+	looper.transport_stopped()
 
 
 func bend(value: float) -> void:

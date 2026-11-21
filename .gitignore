@@ -19,3 +19,6 @@ build_log.txt
 addons/jamcore/bin/
 android_build.txt
 release_build.txt
+android/
+jamcore/**/*.os
+*.os

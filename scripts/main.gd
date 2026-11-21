@@ -9,6 +9,7 @@ var panel: SynthPanel
 var tangle: TangleEditor
 var keys: KeyboardView
 var seq_view: SequencerView
+var loop_view: LooperView
 var _tabs: TabBar
 var _play: Button
 var _pos: Label
@@ -55,6 +56,7 @@ func _ready() -> void:
 	_tabs = TabBar.new()
 	_tabs.add_tab("Sound")
 	_tabs.add_tab("Sequencer")
+	_tabs.add_tab("Looper")
 	_tabs.tab_changed.connect(func(_i): _show_body())
 	root.add_child(_tabs)
 	var body := Control.new()
@@ -70,6 +72,9 @@ func _ready() -> void:
 	seq_view = SequencerView.new()
 	seq_view.set_anchors_preset(Control.PRESET_FULL_RECT)
 	body.add_child(seq_view)
+	loop_view = LooperView.new()
+	loop_view.set_anchors_preset(Control.PRESET_FULL_RECT)
+	body.add_child(loop_view)
 
 	keys = KeyboardView.new()
 	keys.custom_minimum_size.y = 130
@@ -251,9 +256,12 @@ func _show_body() -> void:
 	var sound := _tabs.current_tab == 0
 	panel.visible = sound and not is_tangle
 	tangle.visible = sound and is_tangle
-	seq_view.visible = not sound
-	if not sound:
+	seq_view.visible = _tabs.current_tab == 1
+	loop_view.visible = _tabs.current_tab == 2
+	if seq_view.visible:
 		seq_view.bind(rig.sequencer, rig.color(), rig.instrument == "Pulsar")
+	if loop_view.visible:
+		loop_view.bind(rig)
 
 
 func _build_dialogs() -> void:
@@ -395,6 +403,10 @@ func _unhandled_key_input(event: InputEvent) -> void:
 		Transport.toggle()
 		get_viewport().set_input_as_handled()
 		return
+	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_R:
+		rig.looper.press_record()
+		get_viewport().set_input_as_handled()
+		return
 	# Octave/velocity changes show up in the status line.
 	if event is InputEventKey and event.pressed:
 		_update_status()
@@ -408,6 +420,8 @@ func _parse_dev_args() -> void:
 			rig.set_instrument(a.trim_prefix("--instrument="))
 		elif a == "--seq":
 			_tabs.current_tab = 1
+		elif a == "--loop":
+			_tabs.current_tab = 2
 		elif a == "--play":
 			Transport.start()
 		elif a.begins_with("--frames="):
