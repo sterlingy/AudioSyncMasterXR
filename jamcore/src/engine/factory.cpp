@@ -7,6 +7,7 @@ Instrument *make_comet();
 Instrument *make_lumen();
 Instrument *make_pulsar();
 Instrument *make_driftwood();
+Instrument *make_tangle();
 
 struct Entry {
 	const char *name;
@@ -19,6 +20,7 @@ static const Entry entries[] = {
 	{ "Comet", make_comet },
 	{ "Lumen", make_lumen },
 	{ "Driftwood", make_driftwood },
+	{ "Tangle", make_tangle },
 };
 
 Instrument *create_instrument(const std::string &type) {

@@ -35,7 +35,12 @@ public:
 		collect_garbage();
 	}
 	Instrument *instrument_unsafe() const { return inst; } // main thread, when not playing
+	// Main thread, not playing: applies every queued event now, so objects
+	// still in the queue get prepared for the new sample rate too.
 	void prepare(float sr) {
+		drain();
+		for (int i = 0; i < npending; i++) apply(pending[i]);
+		npending = 0;
 		sample_rate = sr;
 		if (inst) inst->prepare(sr);
 		temp_l.assign(MAX_BLOCK, 0.0f);

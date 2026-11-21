@@ -3,6 +3,7 @@
 #pragma once
 #include "dsp/dsp.h"
 #include "engine/synth_core.h"
+#include "instruments/tangle.h"
 #include <godot_cpp/classes/audio_frame.hpp>
 #include <godot_cpp/classes/audio_stream.hpp>
 #include <godot_cpp/classes/audio_stream_playback.hpp>
@@ -39,12 +40,17 @@ class JamSynth : public AudioStream {
 	GDCLASS(JamSynth, AudioStream)
 
 	std::shared_ptr<jam::SynthCore> core;
+	jam::Instrument *main_inst = nullptr; // newest instrument; its param table is read-only
+	std::unique_ptr<jam::TangleModel> tangle; // only when the instrument is Tangle
 	String instrument_type = "Undertow";
 	std::vector<float> values; // main-thread mirror of parameter values
 	float volume_db = 0.0f;
 	float tempo = 120.0f;
 
 	int index_of(const String &id) const;
+	void ensure_rate(float sr) const;
+	void collect();
+	bool tangle_ok(const char *fn) const;
 	void send(jam::EventType t, int a, float v, int64_t frame);
 
 protected:
@@ -91,6 +97,20 @@ public:
 
 	// Offline rendering for tests and export. Only when not playing.
 	PackedVector2Array render_offline(int frames, float sample_rate = 48000.0f);
+
+	// Tangle (modular) patch editing. Ports and params are addressed by id strings.
+	Array tangle_get_module_types() const;
+	int tangle_add_module(const String &type, Vector2 position = Vector2());
+	bool tangle_remove_module(int id);
+	bool tangle_connect(int from_id, const String &out_port, int to_id, const String &in_port);
+	bool tangle_disconnect(int to_id, const String &in_port);
+	bool tangle_set_param(int id, const String &param, float value);
+	float tangle_get_param(int id, const String &param) const;
+	void tangle_set_position(int id, Vector2 position);
+	Dictionary tangle_get_patch() const;
+	bool tangle_set_patch(const Dictionary &patch);
+	void tangle_clear();
+	void tangle_load_default();
 
 	// Low-level access for instrument-specific classes (Tangle).
 	std::shared_ptr<jam::SynthCore> get_core() const { return core; }

@@ -71,10 +71,7 @@ JamSynth::JamSynth() {
 Ref<AudioStreamPlayback> JamSynth::_instantiate_playback() const {
 	Ref<JamSynthPlayback> pb;
 	pb.instantiate();
-	if (core->active_playbacks.load() == 0) {
-		const float sr = (float)AudioServer::get_singleton()->get_mix_rate();
-		if (sr != core->sample_rate) core->prepare(sr);
-	}
+	if (core->active_playbacks.load() == 0) ensure_rate((float)AudioServer::get_singleton()->get_mix_rate());
 	pb->setup(core);
 	return pb;
 }
@@ -95,21 +92,51 @@ void JamSynth::set_instrument(const String &p_type) {
 	values.clear();
 	for (const jam::ParamInfo &p : inst->params()) values.push_back(p.def);
 	core->set_instrument(inst, is_playing());
+	main_inst = inst;
+	tangle.reset();
+	if (p_type == "Tangle") {
+		tangle = std::make_unique<jam::TangleModel>();
+		tangle->sample_rate = core->sample_rate;
+		std::weak_ptr<jam::SynthCore> weak = core;
+		tangle->send = [weak](int op, int b, int c, float v, void *ptr) {
+			auto k = weak.lock();
+			if (!k) return false;
+			jam::Event e;
+			e.type = jam::EV_CUSTOM;
+			e.a = op;
+			e.b = b;
+			e.value = v;
+			e.ptr = ptr;
+			return k->push(e);
+		};
+		tangle->build_default();
+	}
 	notify_property_list_changed();
 	emit_changed();
+}
+
+void JamSynth::ensure_rate(float sr) const {
+	if (sr == core->sample_rate) return;
+	core->prepare(sr);
+	if (tangle) tangle->sample_rate = sr;
+}
+
+void JamSynth::collect() {
+	core->collect_garbage();
+	if (tangle && main_inst) tangle->collect(static_cast<jam::TangleInstrument *>(main_inst));
 }
 
 int JamSynth::index_of(const String &id) const {
 	// Main thread: the instrument's param table is immutable after construction,
 	// so reading it while the audio thread renders is safe.
-	jam::Instrument *inst = core->instrument_unsafe();
+	jam::Instrument *inst = main_inst;
 	if (!inst) return -1;
 	return inst->param_index(std::string(id.utf8().get_data()));
 }
 
 Array JamSynth::get_param_list() const {
 	Array out;
-	jam::Instrument *inst = core->instrument_unsafe();
+	jam::Instrument *inst = main_inst;
 	if (!inst) return out;
 	const auto &ps = inst->params();
 	for (size_t i = 0; i < ps.size(); i++) {
@@ -141,6 +168,7 @@ void JamSynth::send(jam::EventType t, int a, float v, int64_t frame) {
 	e.a = a;
 	e.value = v;
 	e.frame = frame;
+	collect();
 	if (!core->push(e)) UtilityFunctions::push_warning("JamSynth: event queue full, event dropped");
 }
 
@@ -150,7 +178,7 @@ void JamSynth::set_param(const String &id, float value) {
 		UtilityFunctions::push_warning("JamSynth(", instrument_type, "): unknown parameter '", id, "'");
 		return;
 	}
-	const jam::ParamInfo &p = core->instrument_unsafe()->params()[i];
+	const jam::ParamInfo &p = main_inst->params()[i];
 	value = value < p.min ? p.min : (value > p.max ? p.max : value);
 	if (p.type != jam::P_FLOAT) value = (float)(int)(value + 0.5f);
 	values[i] = value;
@@ -164,10 +192,11 @@ float JamSynth::get_param(const String &id) const {
 
 Dictionary JamSynth::get_params() const {
 	Dictionary d;
-	jam::Instrument *inst = core->instrument_unsafe();
+	jam::Instrument *inst = main_inst;
 	if (!inst) return d;
 	const auto &ps = inst->params();
 	for (size_t i = 0; i < ps.size(); i++) d[String(ps[i].id.c_str())] = values[i];
+	if (tangle) d["patch"] = tangle_get_patch();
 	return d;
 }
 
@@ -177,10 +206,11 @@ void JamSynth::set_params(const Dictionary &params) {
 		const String k = keys[i];
 		if (index_of(k) >= 0) set_param(k, (float)params[k]);
 	}
+	if (tangle && params.has("patch")) tangle_set_patch(params["patch"]);
 }
 
 void JamSynth::reset_params() {
-	jam::Instrument *inst = core->instrument_unsafe();
+	jam::Instrument *inst = main_inst;
 	if (!inst) return;
 	const auto &ps = inst->params();
 	for (size_t i = 0; i < ps.size(); i++) {
@@ -233,6 +263,7 @@ float JamSynth::get_sample_rate() const {
 }
 
 Vector2 JamSynth::take_peak() {
+	collect();
 	const float l = core->peak_l.exchange(0.0f);
 	const float r = core->peak_r.exchange(0.0f);
 	return Vector2(l, r);
@@ -252,7 +283,8 @@ PackedVector2Array JamSynth::render_offline(int frames, float sample_rate) {
 		UtilityFunctions::push_error("JamSynth.render_offline: stop playback first.");
 		return out;
 	}
-	if (sample_rate != core->sample_rate) core->prepare(sample_rate);
+	ensure_rate(sample_rate);
+	collect();
 	out.resize(frames);
 	float *l = core->temp_l.data();
 	float *r = core->temp_r.data();
@@ -274,6 +306,173 @@ bool JamSynth::push_custom(int a, int b, float value, void *ptr) {
 	e.value = value;
 	e.ptr = ptr;
 	return core->push(e);
+}
+
+// ---------------- Tangle ----------------
+
+bool JamSynth::tangle_ok(const char *fn) const {
+	if (tangle) return true;
+	UtilityFunctions::push_error("JamSynth.", fn, ": instrument is ", instrument_type, ", not Tangle.");
+	return false;
+}
+
+static Array ports_to_array(const std::vector<jam::PortInfo> &ports) {
+	Array a;
+	for (const jam::PortInfo &p : ports) {
+		Dictionary d;
+		d["id"] = String(p.id.c_str());
+		d["name"] = String::utf8(p.name.c_str());
+		a.push_back(d);
+	}
+	return a;
+}
+
+static Dictionary param_to_dict(const jam::ParamInfo &p, int index, float value) {
+	Dictionary d;
+	d["index"] = index;
+	d["id"] = String(p.id.c_str());
+	d["name"] = String::utf8(p.name.c_str());
+	d["group"] = String(p.group.c_str());
+	static const char *types[] = { "float", "int", "enum", "bool" };
+	d["type"] = String(types[p.type]);
+	d["min"] = p.min;
+	d["max"] = p.max;
+	d["default"] = p.def;
+	d["unit"] = String(p.unit.c_str());
+	d["log"] = p.log_scale;
+	PackedStringArray opts;
+	for (const std::string &o : p.options) opts.push_back(String(o.c_str()));
+	d["options"] = opts;
+	d["value"] = value;
+	return d;
+}
+
+Array JamSynth::tangle_get_module_types() const {
+	Array out;
+	for (const jam::ModuleDesc &m : jam::tangle_modules()) {
+		Dictionary d;
+		d["type"] = String(m.type.c_str());
+		d["name"] = String::utf8(m.name.c_str());
+		d["description"] = String::utf8(m.description.c_str());
+		d["inputs"] = ports_to_array(m.inputs);
+		d["outputs"] = ports_to_array(m.outputs);
+		Array ps;
+		for (size_t i = 0; i < m.params.size(); i++) ps.push_back(param_to_dict(m.params[i], (int)i, m.params[i].def));
+		d["params"] = ps;
+		out.push_back(d);
+	}
+	return out;
+}
+
+int JamSynth::tangle_add_module(const String &type, Vector2 position) {
+	if (!tangle_ok("tangle_add_module")) return -1;
+	collect();
+	return tangle->add(std::string(type.utf8().get_data()), position.x, position.y);
+}
+
+bool JamSynth::tangle_remove_module(int id) {
+	if (!tangle_ok("tangle_remove_module")) return false;
+	collect();
+	return tangle->remove(id);
+}
+
+bool JamSynth::tangle_connect(int from_id, const String &out_port, int to_id, const String &in_port) {
+	if (!tangle_ok("tangle_connect")) return false;
+	collect();
+	return tangle->connect(from_id, std::string(out_port.utf8().get_data()), to_id, std::string(in_port.utf8().get_data()));
+}
+
+bool JamSynth::tangle_disconnect(int to_id, const String &in_port) {
+	if (!tangle_ok("tangle_disconnect")) return false;
+	collect();
+	return tangle->disconnect(to_id, std::string(in_port.utf8().get_data()));
+}
+
+bool JamSynth::tangle_set_param(int id, const String &param, float value) {
+	if (!tangle_ok("tangle_set_param")) return false;
+	return tangle->set_param(id, std::string(param.utf8().get_data()), value);
+}
+
+float JamSynth::tangle_get_param(int id, const String &param) const {
+	if (!tangle_ok("tangle_get_param")) return 0.0f;
+	return tangle->get_param(id, std::string(param.utf8().get_data()));
+}
+
+void JamSynth::tangle_set_position(int id, Vector2 position) {
+	if (!tangle_ok("tangle_set_position")) return;
+	if (id >= 0 && id < jam::TANGLE_MAX_MODULES && tangle->mods[id].id >= 0) {
+		tangle->mods[id].x = position.x;
+		tangle->mods[id].y = position.y;
+	}
+}
+
+Dictionary JamSynth::tangle_get_patch() const {
+	Dictionary patch;
+	if (!tangle) return patch;
+	const auto &descs = jam::tangle_modules();
+	Array mods;
+	for (const auto &m : tangle->mods) {
+		if (m.id < 0) continue;
+		const jam::ModuleDesc &d = descs[m.type];
+		Dictionary md;
+		md["id"] = m.id;
+		md["type"] = String(d.type.c_str());
+		md["position"] = Vector2(m.x, m.y);
+		Dictionary ps;
+		for (size_t i = 0; i < d.params.size(); i++) ps[String(d.params[i].id.c_str())] = m.params[i];
+		md["params"] = ps;
+		mods.push_back(md);
+	}
+	Array cables;
+	for (const auto &c : tangle->cables) {
+		Dictionary cd;
+		cd["from"] = c.from;
+		cd["out"] = String(descs[tangle->mods[c.from].type].outputs[c.out].id.c_str());
+		cd["to"] = c.to;
+		cd["in"] = String(descs[tangle->mods[c.to].type].inputs[c.in].id.c_str());
+		cables.push_back(cd);
+	}
+	patch["modules"] = mods;
+	patch["cables"] = cables;
+	return patch;
+}
+
+bool JamSynth::tangle_set_patch(const Dictionary &patch) {
+	if (!tangle_ok("tangle_set_patch")) return false;
+	collect();
+	tangle->clear();
+	// Saved ids may not match the slots we get; map them.
+	Dictionary remap;
+	Array mods = patch.get("modules", Array());
+	for (int i = 0; i < mods.size(); i++) {
+		Dictionary md = mods[i];
+		Vector2 pos = md.get("position", Vector2());
+		const int id = tangle_add_module(md.get("type", ""), pos);
+		if (id < 0) continue;
+		remap[md.get("id", i)] = id;
+		Dictionary ps = md.get("params", Dictionary());
+		Array keys = ps.keys();
+		for (int k = 0; k < keys.size(); k++) tangle_set_param(id, keys[k], ps[keys[k]]);
+	}
+	Array cables = patch.get("cables", Array());
+	for (int i = 0; i < cables.size(); i++) {
+		Dictionary cd = cables[i];
+		if (!remap.has(cd.get("from", -1)) || !remap.has(cd.get("to", -1))) continue;
+		tangle_connect(remap[cd["from"]], cd.get("out", ""), remap[cd["to"]], cd.get("in", ""));
+	}
+	return true;
+}
+
+void JamSynth::tangle_clear() {
+	if (!tangle_ok("tangle_clear")) return;
+	collect();
+	tangle->clear();
+}
+
+void JamSynth::tangle_load_default() {
+	if (!tangle_ok("tangle_load_default")) return;
+	collect();
+	tangle->build_default();
 }
 
 void JamSynth::_bind_methods() {
@@ -301,6 +500,19 @@ void JamSynth::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_cpu_load"), &JamSynth::get_cpu_load);
 	ClassDB::bind_method(D_METHOD("is_playing"), &JamSynth::is_playing);
 	ClassDB::bind_method(D_METHOD("render_offline", "frames", "sample_rate"), &JamSynth::render_offline, DEFVAL(48000.0f));
+
+	ClassDB::bind_method(D_METHOD("tangle_get_module_types"), &JamSynth::tangle_get_module_types);
+	ClassDB::bind_method(D_METHOD("tangle_add_module", "type", "position"), &JamSynth::tangle_add_module, DEFVAL(Vector2()));
+	ClassDB::bind_method(D_METHOD("tangle_remove_module", "id"), &JamSynth::tangle_remove_module);
+	ClassDB::bind_method(D_METHOD("tangle_connect", "from_id", "out_port", "to_id", "in_port"), &JamSynth::tangle_connect);
+	ClassDB::bind_method(D_METHOD("tangle_disconnect", "to_id", "in_port"), &JamSynth::tangle_disconnect);
+	ClassDB::bind_method(D_METHOD("tangle_set_param", "id", "param", "value"), &JamSynth::tangle_set_param);
+	ClassDB::bind_method(D_METHOD("tangle_get_param", "id", "param"), &JamSynth::tangle_get_param);
+	ClassDB::bind_method(D_METHOD("tangle_set_position", "id", "position"), &JamSynth::tangle_set_position);
+	ClassDB::bind_method(D_METHOD("tangle_get_patch"), &JamSynth::tangle_get_patch);
+	ClassDB::bind_method(D_METHOD("tangle_set_patch", "patch"), &JamSynth::tangle_set_patch);
+	ClassDB::bind_method(D_METHOD("tangle_clear"), &JamSynth::tangle_clear);
+	ClassDB::bind_method(D_METHOD("tangle_load_default"), &JamSynth::tangle_load_default);
 
 	ADD_PROPERTY(PropertyInfo(Variant::STRING, "instrument", PROPERTY_HINT_ENUM, "Undertow,Comet,Lumen,Pulsar,Driftwood,Tangle"), "set_instrument", "get_instrument");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "volume_db", PROPERTY_HINT_RANGE, "-60,12,0.1,suffix:dB"), "set_volume_db", "get_volume_db");
