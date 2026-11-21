@@ -21,6 +21,7 @@ const DEFAULTS := {
 	"audio_buffer_ms": 15.0,
 	"audio_codec": "pcm16",
 	"click_volume_db": 0.0,
+	"instrument_audio": false, # send my instrument as audio instead of notes
 	"approve_tempo": true, # host: ask before applying a player's tempo change
 }
 

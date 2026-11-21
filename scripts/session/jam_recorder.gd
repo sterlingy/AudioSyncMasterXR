@@ -29,6 +29,7 @@ var _tracks := {} # player name -> {"synth": JamSynth, "events": PackedFloat64Ar
 var _tempo_log: Array = [] # [local time, bpm]
 var _meter := 4
 var _sources := {} # source key -> true (added already)
+var _log_only: Array = [] # synths recorded for their notes only (players in audio mode)
 
 
 func _process(_d: float) -> void:
@@ -95,23 +96,30 @@ func _add_new_sources() -> void:
 		if not p.has("rig"):
 			continue
 		var who := _player_name(id)
-		_add_synth("rig%d" % id, who, p.rig.synth, out_lat, true)
+		# A player in audio mode: their sound is in their voice stream; keep only their notes.
+		_add_synth("rig%d" % id, who, p.rig.synth, out_lat, true, "", not p.get("audio_mode", false))
 		_add_synth("clips%d" % id, who, p.rig.clip_synth(), out_lat, false)
 		if Session.audio and p.get("voice") and not _sources.has("voice%d" % id):
 			_sources["voice%d" % id] = true
 			# Put their voice back where they played it: minus buffer and network.
 			var st: Dictionary = Session.audio.get_peer_stats(id)
-			var lat: float = (float(st.get("latency_ms", 15.0)) + maxf(float(st.get("rtt_ms", 0.0)), 0.0) * 0.5) / 1000.0
+			var lat: float = float(st.get("audio_delay_ms", -1.0)) / 1000.0
+			if lat <= 0.0:
+				lat = (float(st.get("latency_ms", 15.0)) + maxf(float(st.get("rtt_ms", 0.0)), 0.0) * 0.5) / 1000.0
 			_stems.add_peer_voice(who, Session.audio, id, out_lat - lat)
 	for l in MasterLooper.layers:
 		_add_synth("master%d" % l.id, "Master looper", l.synth, out_lat, l.kind != "audio", "Master: %s by %s" % [l.instrument, l.owner_name])
 
 
-func _add_synth(key: String, player: String, synth: JamSynth, shift: float, notes: bool, track := "") -> void:
+func _add_synth(key: String, player: String, synth: JamSynth, shift: float, notes: bool, track := "", audio := true) -> void:
 	if _sources.has(key) or synth == null:
 		return
 	_sources[key] = true
-	_stems.add_synth(player, synth, shift)
+	if audio:
+		_stems.add_synth(player, synth, shift)
+	else:
+		synth.set_recording(true) # notes only (the stem recorder turns this off for its own sources)
+		_log_only.append(synth)
 	if notes:
 		var name := track if track != "" else player
 		_tracks[key] = {"name": name, "synth": synth, "events": PackedFloat64Array(), "instrument": synth.instrument}
@@ -134,6 +142,10 @@ func stop() -> String:
 		return ""
 	_collect()
 	_stems.stop()
+	for synth in _log_only:
+		if is_instance_valid(synth):
+			synth.set_recording(false)
+	_log_only.clear()
 	recording = false
 	write_midi(dir + "jam.mid")
 	save_session(dir + "session.json")

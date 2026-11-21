@@ -72,6 +72,9 @@ var notes_received := 0
 
 var audio: Object = null # JamAudioLink while in a session (null if jamcore was built without AOO)
 var send_audio := false
+## Audio mode: my instrument goes out as audio in my stream (for players
+## whose device can't render every instrument); the others mute their copy.
+var instrument_audio := false
 var input_device := -1 # -1 = system default
 var input_channel := -1 # -1 = mix all channels
 var audio_buffer_ms := 15.0 # receive jitter buffer
@@ -110,6 +113,7 @@ func _ready() -> void:
 	audio_buffer_ms = float(Settings.get_value("audio_buffer_ms"))
 	audio_codec = str(Settings.get_value("audio_codec"))
 	approve_tempo = bool(Settings.get_value("approve_tempo"))
+	instrument_audio = bool(Settings.get_value("instrument_audio"))
 	Transport.click_volume_db = float(Settings.get_value("click_volume_db"))
 	var dev_name := str(Settings.get_value("audio_device"))
 	if dev_name != "" and ClassDB.class_exists("JamAudioLink"):
@@ -393,6 +397,8 @@ func _update_audibility() -> void:
 			continue
 		var silent: bool = p.muted or MasterLooper.listen == MasterLooper.Listen.OWN_ONLY
 		p.rig.set_volume_db(-80.0 if silent else p.volume_db)
+		if p.get("audio_mode", false):
+			p.rig.player.volume_db = -80.0 # their instrument arrives in their audio stream
 		if p.voice:
 			p.voice.volume_db = -80.0 if silent else p.volume_db
 		p.rig.looper.silenced = MasterLooper.listen != MasterLooper.Listen.MASTER_AND_LIVE
@@ -403,7 +409,7 @@ func _update_audibility() -> void:
 func _snapshot_data(kind: String) -> Variant:
 	match kind:
 		"sound":
-			return {"instrument": local_rig.instrument, "params": local_rig.synth.get_params()}
+			return {"instrument": local_rig.instrument, "params": local_rig.synth.get_params(), "audio_mode": instrument_audio}
 		"seq":
 			return local_rig.sequencer.to_dict()
 		"loop":
@@ -455,6 +461,11 @@ func _snapshot(kind: String, data: Variant) -> void:
 				players_changed.emit()
 			if typeof(data.get("params")) == TYPE_DICTIONARY:
 				apply_sound(rig, data.params, p)
+			var am := bool(data.get("audio_mode", false))
+			if am != p.get("audio_mode", false):
+				p.audio_mode = am
+				_update_audibility()
+				players_changed.emit()
 		"seq":
 			if typeof(data) == TYPE_DICTIONARY:
 				rig.sequencer.from_dict(data)
@@ -962,6 +973,12 @@ func set_send_audio(on: bool) -> void:
 	_apply_audio_input()
 
 
+func set_instrument_audio(on: bool) -> void:
+	instrument_audio = on
+	Settings.set_value("instrument_audio", on)
+	_apply_audio_input()
+
+
 func set_input(device: int, channel: int, exclusive := input_exclusive) -> void:
 	input_device = device
 	input_channel = channel
@@ -992,9 +1009,13 @@ func set_audio_codec(codec: String) -> void:
 ## `send_audio` is "my audio input is on": captured always (meter, audio
 ## loops), and sent to the others while in a session.
 func _apply_audio_input() -> void:
+	if instrument_audio and local_rig and _ensure_audio():
+		audio.set_instrument_audio(local_rig.synth)
+	elif audio and audio.is_instrument_audio():
+		audio.set_instrument_audio(null)
 	if not send_audio:
 		if audio:
-			audio.set_sending(false)
+			audio.set_sending(is_online() and instrument_audio)
 			audio.stop_capture()
 		_stop_godot_mic()
 		return

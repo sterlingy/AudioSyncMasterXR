@@ -70,6 +70,12 @@ func _ready() -> void:
 	_send.button_pressed = Session.send_audio
 	_send.toggled.connect(func(on): Session.set_send_audio(on))
 	arow.add_child(_send)
+	var inst_audio := CheckButton.new()
+	inst_audio.text = "Send instrument as audio"
+	inst_audio.tooltip_text = "Streams your instrument's sound instead of letting everyone render it from your notes. For players whose device can't render every instrument; uses more bandwidth and adds the audio buffer's delay."
+	inst_audio.button_pressed = Session.instrument_audio
+	inst_audio.toggled.connect(func(on): Session.set_instrument_audio(on))
+	arow.add_child(inst_audio)
 	arow.add_child(_label("Input"))
 	_device = OptionButton.new()
 	_device.add_item("System default", 0)

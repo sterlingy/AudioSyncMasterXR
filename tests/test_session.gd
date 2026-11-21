@@ -207,3 +207,43 @@ func test_interval_seconds_follow_tempo() -> void:
 	assert_almost_eq(Session.interval_seconds(), Session.MAX_INTERVAL_S, 1e-9, "capped at what the link can hold")
 	Session.interval_bars = bars
 	Transport.bpm = 120.0
+
+
+func test_instrument_audio_mode_streams_the_synth() -> void:
+	if not ClassDB.class_exists("JamAudioLink"):
+		pass_test("jamcore built without AOO")
+		return
+	var a: Object = ClassDB.instantiate("JamAudioLink")
+	var b: Object = ClassDB.instantiate("JamAudioLink")
+	assert_eq(a.start(0, 101), OK)
+	assert_eq(b.start(0, 202), OK)
+	a.add_peer(202, "127.0.0.1", b.get_port())
+	b.add_peer(101, "127.0.0.1", a.get_port())
+	# b's instrument plays in real time and goes out as audio (no mic).
+	var synth := JamSynth.new()
+	synth.instrument = "Lumen"
+	var sp := AudioStreamPlayer.new()
+	sp.stream = synth
+	add_child_autofree(sp)
+	sp.play()
+	b.set_instrument_audio(synth)
+	assert_true(b.is_instrument_audio())
+	b.set_sending(true)
+	var heard := AudioStreamPlayer.new()
+	heard.stream = a.get_peer_stream(202)
+	add_child_autofree(heard)
+	heard.play()
+	await wait_seconds(0.2)
+	for n in [60, 64, 67]:
+		synth.note_on(n, 0.9)
+	var peak := 0.0
+	for i in 40:
+		await wait_frames(1)
+		peak = maxf(peak, float(a.get_peer_stats(202).get("peak", 0.0)))
+	await wait_seconds(0.5)
+	peak = maxf(peak, float(a.get_peer_stats(202).get("peak", 0.0)))
+	assert_gt(peak, 0.02, "the instrument is heard through b's audio stream (peak %.3f)" % peak)
+	b.set_instrument_audio(null)
+	assert_false(b.is_instrument_audio())
+	a.stop()
+	b.stop()

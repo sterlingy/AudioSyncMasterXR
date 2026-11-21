@@ -33,6 +33,7 @@ public:
 	~SynthCore() {
 		delete log;
 		delete tap;
+		delete stream_tap;
 		Instrument *g;
 		while (garbage.pop(g)) delete g;
 		delete inst;
@@ -94,6 +95,18 @@ public:
 	bool take_log(LogEntry &out) { return log && log->pop(out); }
 	OutputTap *get_tap() const { return tap; }
 
+	// Audio mode (main thread): a second tap whose blocks the audio link sends
+	// to the other players instead of notes. Created once, kept like `tap`.
+	OutputTap *set_streaming(bool on) {
+		if (on && !stream_tap) stream_tap = new OutputTap();
+		if (on) {
+			TapBlock tb;
+			while (stream_tap->read(tb)) {}
+		}
+		streaming.store(on, std::memory_order_release);
+		return stream_tap;
+	}
+
 	// ---- audio thread ----
 	// Renders n frames into l/r (overwrites).
 	void process(float *l, float *r, int n, bool realtime = true) {
@@ -136,6 +149,7 @@ public:
 			if (ar > pk_r) pk_r = ar;
 		}
 		if (rec) tap->write(l, r, n, anchor_time_rt, (int)sample_rate);
+		if (realtime && streaming.load(std::memory_order_acquire)) stream_tap->write(l, r, n, anchor_time_rt, (int)sample_rate);
 		frame_pos.store(start + n, std::memory_order_relaxed);
 		peak_l.store(std::max(pk_l, peak_l.load(std::memory_order_relaxed)), std::memory_order_relaxed);
 		peak_r.store(std::max(pk_r, peak_r.load(std::memory_order_relaxed)), std::memory_order_relaxed);
@@ -236,6 +250,8 @@ private:
 		}
 	}
 	std::atomic<bool> recording{false};
+	std::atomic<bool> streaming{false};
+	OutputTap *stream_tap = nullptr;
 	SpscQueue<LogEntry, 16384> *log = nullptr;
 	OutputTap *tap = nullptr;
 

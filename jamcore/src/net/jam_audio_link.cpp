@@ -133,6 +133,9 @@ Error JamAudioLink::start(int port, int p_my_id) {
 
 void JamAudioLink::stop() {
 	capture.stop();
+	if (inst_core) inst_core->set_streaming(false);
+	inst_on = false;
+	inst_core.reset();
 	if (running.exchange(false) && net_thread.joinable()) net_thread.join();
 	{
 		std::lock_guard<std::mutex> lock(peers_mutex);
@@ -470,6 +473,7 @@ void JamAudioLink::net_loop() {
 				}
 			}
 		}
+		feed_instrument_only();
 		source->send(&JamAudioLink::send_fn, this);
 		std::lock_guard<std::mutex> lock(peers_mutex);
 		for (auto &kv : peers) kv.second->sink->send(&JamAudioLink::send_fn, this);
@@ -528,12 +532,15 @@ void JamAudioLink::feed(const float *mono, int frames, int sample_rate, double l
 	static thread_local std::vector<float> scratch(MAX_BLOCK);
 	const float g = input_gain.load(std::memory_order_relaxed);
 	float pk = 0.0f;
+	last_input_feed.store(jam::mono_seconds(), std::memory_order_relaxed);
+	if (feed_busy.test_and_set(std::memory_order_acquire)) return; // another thread is sending this instant
 	while (frames > 0) {
 		const int n = std::min(frames, MAX_BLOCK);
 		for (int i = 0; i < n; i++) {
 			scratch[i] = mono[i] * g;
 			pk = std::max(pk, std::fabs(scratch[i]));
 		}
+		if (inst_on.load(std::memory_order_acquire)) pull_instrument(scratch.data(), n, true);
 		if (sending.load(std::memory_order_relaxed)) {
 			AooSample *ch = scratch.data();
 			source->process(&ch, n, aoo_getCurrentNtpTime());
@@ -541,7 +548,76 @@ void JamAudioLink::feed(const float *mono, int frames, int sample_rate, double l
 		mono += n;
 		frames -= n;
 	}
+	feed_busy.clear(std::memory_order_release);
 	if (pk > input_peak.load(std::memory_order_relaxed)) input_peak.store(pk, std::memory_order_relaxed);
+}
+
+// Holding feed_busy. Adds (mix) or writes the next `frames` instrument samples
+// into `mono`; returns how many were available. The instrument and the mic run
+// on different clocks, so the carry is kept short: old samples are dropped
+// rather than letting the delay grow.
+int JamAudioLink::pull_instrument(float *mono, int frames, bool mix) {
+	jam::TapBlock b;
+	const int cap = (int)inst_carry.size();
+	while (inst_carry_n + jam::TapBlock::FRAMES <= cap && inst_tap->read(b)) {
+		if (b.rate != source_rate) continue; // rates must match (both are the device rate)
+		for (int i = 0; i < b.frames; i++) inst_carry[inst_carry_n++] = 0.5f * (b.l[i] + b.r[i]);
+	}
+	const int keep = std::max(frames * 2, 1024);
+	if (inst_carry_n > keep) { // drift: drop the oldest
+		const int drop = inst_carry_n - keep;
+		memmove(inst_carry.data(), inst_carry.data() + drop, sizeof(float) * (inst_carry_n - drop));
+		inst_carry_n -= drop;
+	}
+	const int n = std::min(frames, inst_carry_n);
+	for (int i = 0; i < n; i++) mono[i] = mix ? mono[i] + inst_carry[i] : inst_carry[i];
+	if (!mix)
+		for (int i = n; i < frames; i++) mono[i] = 0.0f;
+	memmove(inst_carry.data(), inst_carry.data() + n, sizeof(float) * (inst_carry_n - n));
+	inst_carry_n -= n;
+	return n;
+}
+
+// Network thread, when no mic is feeding: send the instrument on its own,
+// as fast as it's rendered.
+void JamAudioLink::feed_instrument_only() {
+	if (!inst_on.load(std::memory_order_acquire) || !source) return;
+	if (jam::mono_seconds() - last_input_feed.load(std::memory_order_relaxed) < 0.1) return; // the mic drives
+	if (feed_busy.test_and_set(std::memory_order_acquire)) return;
+	jam::TapBlock b;
+	float mono[jam::TapBlock::FRAMES];
+	while (inst_tap->read(b)) {
+		if (b.rate != source_rate) {
+			setup_source(b.rate); // no mic: follow the instrument's rate
+			continue;
+		}
+		for (int i = 0; i < b.frames; i++) mono[i] = 0.5f * (b.l[i] + b.r[i]);
+		if (sending.load(std::memory_order_relaxed)) {
+			AooSample *ch = mono;
+			source->process(&ch, b.frames, aoo_getCurrentNtpTime());
+		}
+	}
+	inst_carry_n = 0;
+	feed_busy.clear(std::memory_order_release);
+}
+
+void JamAudioLink::set_instrument_audio(Object *obj) {
+	JamSynth *js = Object::cast_to<JamSynth>(obj);
+	auto core = js ? js->get_core() : nullptr;
+	if (inst_core && inst_core != core) inst_core->set_streaming(false);
+	if (!core) {
+		inst_on = false;
+		inst_core.reset();
+		return;
+	}
+	if (inst_carry.empty()) inst_carry.assign(8192, 0.0f);
+	// Swap taps only while no thread is feeding.
+	lock_feed();
+	inst_core = core;
+	inst_tap = core->set_streaming(true);
+	inst_carry_n = 0;
+	inst_on = true;
+	feed_busy.clear(std::memory_order_release);
 }
 
 Error JamAudioLink::start_capture(int device, int channel, bool exclusive) {
@@ -558,7 +634,9 @@ Error JamAudioLink::start_capture(int device, int channel, bool exclusive) {
 	capture_exclusive = exclusive;
 	capture_period_ms = capture.period_ms();
 	capture_latency = capture_period_ms / 1000.0 + 0.001; // one buffer + converter
+	lock_feed();
 	setup_source(capture.sample_rate());
+	feed_busy.clear(std::memory_order_release);
 	capture_ready.store(true, std::memory_order_release);
 	return OK;
 }
@@ -570,7 +648,11 @@ void JamAudioLink::stop_capture() {
 
 void JamAudioLink::push_input(const PackedVector2Array &frames, int sample_rate) {
 	if (!source || capture.running()) return;
-	if (sample_rate != source_rate) setup_source(sample_rate);
+	if (sample_rate != source_rate) {
+		lock_feed();
+		setup_source(sample_rate);
+		feed_busy.clear(std::memory_order_release);
+	}
 	static thread_local std::vector<float> mono;
 	mono.resize(frames.size());
 	for (int i = 0; i < frames.size(); i++) mono[i] = 0.5f * (frames[i].x + frames[i].y);
@@ -665,8 +747,10 @@ void JamAudioLink::set_codec(const String &name, int bitrate) {
 	// Formats change with the input stopped (setup and process must not overlap).
 	const bool was = capture.running();
 	capture.stop();
+	lock_feed();
 	apply_format();
 	if (sending.load()) source->startStream(0, nullptr);
+	feed_busy.clear(std::memory_order_release);
 	if (was) start_capture(capture_device, capture_channel, capture_exclusive);
 }
 
@@ -709,6 +793,8 @@ void JamAudioLink::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("get_codec"), &JamAudioLink::get_codec);
 	ClassDB::bind_method(D_METHOD("set_block_size", "frames"), &JamAudioLink::set_block_size);
 	ClassDB::bind_method(D_METHOD("route_notes", "peer_id", "synth"), &JamAudioLink::route_notes);
+	ClassDB::bind_method(D_METHOD("set_instrument_audio", "synth"), &JamAudioLink::set_instrument_audio);
+	ClassDB::bind_method(D_METHOD("is_instrument_audio"), &JamAudioLink::is_instrument_audio);
 	ClassDB::bind_method(D_METHOD("set_clock", "offset", "output_latency"), &JamAudioLink::set_clock);
 	ClassDB::bind_method(D_METHOD("set_steady_timing", "on"), &JamAudioLink::set_steady_timing);
 	ClassDB::bind_method(D_METHOD("set_interval", "seconds"), &JamAudioLink::set_interval);

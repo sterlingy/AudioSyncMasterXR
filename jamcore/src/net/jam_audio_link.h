@@ -150,6 +150,24 @@ class JamAudioLink : public RefCounted {
 	void handle_note_packet(const uint8_t *b, int n, const sockaddr_in &from);
 	void send_hellos();
 
+	// Audio mode: our instrument's output, sent in our stream (mixed with the
+	// mic when capturing). Only the thread holding `feed_busy` touches the
+	// source and `inst_tap` (capture thread, push_input, or the network thread
+	// when there's no mic); the others skip, so nothing ever waits.
+	std::shared_ptr<jam::SynthCore> inst_core;
+	jam::OutputTap *inst_tap = nullptr;
+	std::atomic<bool> inst_on{false};
+	std::atomic_flag feed_busy = ATOMIC_FLAG_INIT;
+	std::vector<float> inst_carry; // mono instrument samples not sent yet
+	int inst_carry_n = 0;
+	std::atomic<double> last_input_feed{0.0}; // monotonic time the mic last fed us
+	int pull_instrument(float *mono, int frames, bool mix);
+	// Main thread: wait (briefly) for the feeding thread, before touching the source.
+	void lock_feed() {
+		while (feed_busy.test_and_set(std::memory_order_acquire)) std::this_thread::yield();
+	}
+	void feed_instrument_only();
+
 	void net_loop();
 	void setup_source(int sample_rate);
 	void apply_format();
@@ -219,6 +237,9 @@ public:
 	void set_block_size(int frames);
 
 	void update_delays();
+
+	void set_instrument_audio(Object *synth); // null = off (send notes only)
+	bool is_instrument_audio() const { return inst_on.load(); }
 
 	void route_notes(int peer_id, Object *synth);
 	void set_interval(double seconds);

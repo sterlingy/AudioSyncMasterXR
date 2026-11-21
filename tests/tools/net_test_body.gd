@@ -208,6 +208,20 @@ func _host() -> void:
 	Session.set_interval_bars(0)
 	await wait(0.5)
 
+	# Audio mode: the client sends its instrument as audio; we mute our copy
+	# of its instrument and hear it through its stream instead.
+	channel.rpc_id(client_id, "report", {"cmd": "inst_audio"})
+	await wait_until(func(): return p.get("audio_mode", false), 5.0)
+	check(p.get("audio_mode", false) and rrig.player.volume_db <= -79.0, "client in audio mode: our copy of its instrument muted")
+	var ipk := 0.0
+	var t_i := Time.get_ticks_msec() + 2500
+	while Time.get_ticks_msec() < t_i:
+		await get_tree().process_frame
+		ipk = maxf(ipk, float(Session.audio.get_peer_stats(client_id).get("peak", 0.0)))
+	print("  audio mode: instrument peak in the client's stream %.3f" % ipk)
+	check(ipk > 0.02, "client's instrument heard through its audio stream")
+	await wait_until(func(): return not p.get("audio_mode", false), 5.0)
+
 	# Audio loop: the client records one bar of its input into looper slot 2;
 	# the clip reaches us once and plays from the clock here.
 	var aloop: Array = [null]
@@ -242,6 +256,8 @@ func _client() -> void:
 			_tone(float(d.get("seconds", 2.0)))
 		elif d.get("cmd") == "aloop":
 			_aloop()
+		elif d.get("cmd") == "inst_audio":
+			_inst_audio()
 		elif d.get("cmd") == "state":
 			channel.rpc_id(1, "report", {"interval": Session.interval_bars}))
 	channel.finished.connect(func():
@@ -272,6 +288,18 @@ func _client() -> void:
 		"param_id": info.id, "param_value": rig.synth.get_param(info.id), "master_layers": MasterLooper.layers.size()})
 	await wait(90.0 if remote else 15.0) # the host sends "finish" when done
 	get_tree().quit(1)
+
+
+func _inst_audio() -> void:
+	Session.set_instrument_audio(true)
+	var rig: InstrumentRig = Session.local_rig
+	await wait(0.3)
+	for n in [60, 64, 67]:
+		rig.play_note(n, 0.9)
+	await wait(2.0)
+	for n in [60, 64, 67]:
+		rig.release_note(n)
+	Session.set_instrument_audio(false) # also restores the saved setting
 
 
 func _aloop() -> void:
