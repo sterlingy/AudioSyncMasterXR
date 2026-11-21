@@ -1,0 +1,17 @@
+.godot/
+.import/
+*.tmp
+export.cfg
+export_credentials.cfg
+build/
+thirdparty/
+# jamcore build products
+jamcore/**/*.obj
+jamcore/**/*.o
+jamcore/.sconsign*.dblite
+jamcore/extension_api.json
+addons/jamcore/bin/*.lib
+addons/jamcore/bin/*.exp
+addons/jamcore/bin/*.pdb
+addons/jamcore/bin/*.ilk
+test_output/
