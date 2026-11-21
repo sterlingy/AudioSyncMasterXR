@@ -53,3 +53,14 @@ func test_avatar_delay_follows_what_you_hear() -> void:
 	Session.interval_bars = 1
 	assert_almost_eq(Session.avatar_delay(notes_only), Session.interval_seconds(), 1e-9, "interval mode: one interval")
 	Session.interval_bars = was_interval
+
+
+func test_every_instrument_has_a_3d_model() -> void:
+	for t in JamSynth.get_instrument_types():
+		if t == "Metronome" or t == "Clips":
+			continue
+		var m := InstrumentModels.instantiate(t)
+		assert_not_null(m, "%s has a model" % t)
+		if m:
+			assert_gt(m.find_children("*", "MeshInstance3D", true, false).size(), 3, "%s model has meshes" % t)
+			m.free()
