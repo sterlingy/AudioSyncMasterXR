@@ -247,8 +247,8 @@ public:
 				sl += s * gl[v];
 				srr += s * gr[v];
 			}
-			l[i] += dc_l.process(drive(sl * vol, drv));
-			r[i] += dc_r.process(drive(srr * vol, drv));
+			l[i] += drive(dc_l.process(sl * vol), drv);
+			r[i] += drive(dc_r.process(srr * vol), drv);
 		}
 	}
 };

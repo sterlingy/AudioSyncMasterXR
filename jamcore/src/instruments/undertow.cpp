@@ -214,7 +214,8 @@ public:
 			const float s1 = osc[0].process(midi_to_hz(note + r1 * 12.0f + om) / sr, w1);
 			const float s2 = osc[1].process(midi_to_hz(note + f2 + r2 * 12.0f + om) / sr, w2);
 
-			float x = s1 * lv1 + s2 * lv2 + s3 * lv3 + noise * lvn + last_out * lvx * 3.0f;
+			// 1e-5 of noise stands in for thermal noise so full emphasis can start ringing.
+			float x = s1 * lv1 + s2 * lv2 + s3 * lv3 + noise * lvn + last_out * lvx * 3.0f + wn * 1e-5f;
 
 			const float fe = fenv.process();
 			float coct = cutoff_s.process(cutoff_oct_base) + fe * contour + keytrack * (note - 60.0f) / 12.0f + vel_cut;

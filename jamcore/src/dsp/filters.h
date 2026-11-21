@@ -140,6 +140,13 @@ struct Resonator {
 		set(freq, decay_s, sr);
 		gain = std::sin(TWO_PI * clampf(freq, 10.0f, sr * 0.45f) / sr);
 	}
+	// Same, but a sine at the resonant frequency comes out at unit gain
+	// (used as a body/formant resonance).
+	void set_peak_unity(float freq, float decay_s, float sr) {
+		set(freq, decay_s, sr);
+		const float r = std::sqrt(-b2);
+		gain = (1.0f - r) * 2.0f * std::sin(TWO_PI * clampf(freq, 10.0f, sr * 0.45f) / sr);
+	}
 	void reset() { y1 = y2 = 0.0f; }
 	inline float process(float x) {
 		const float y = gain * x + b1 * y1 + b2 * y2;

@@ -87,8 +87,8 @@ public:
 		reverb.init(sr);
 		dc_l.init(sr);
 		dc_r.init(sr);
-		body_l.set(180.0f, 0.03f, sr);
-		body_r.set(240.0f, 0.03f, sr);
+		body_l.set_peak_unity(180.0f, 0.03f, sr);
+		body_r.set_peak_unity(240.0f, 0.03f, sr);
 	}
 
 	// Mode frequency ratios and relative decays for each mallet model.
@@ -262,8 +262,8 @@ public:
 				srr *= t;
 			}
 			if (body > 0.0f) {
-				sl += body_l.process(sl) * body * 6.0f;
-				srr += body_r.process(srr) * body * 6.0f;
+				sl += body_l.process(sl) * body * 1.5f;
+				srr += body_r.process(srr) * body * 1.5f;
 			}
 			sl = dc_l.process(sl * vol);
 			srr = dc_r.process(srr * vol);

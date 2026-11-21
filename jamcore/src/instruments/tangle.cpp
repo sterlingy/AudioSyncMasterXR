@@ -163,6 +163,7 @@ public:
 class VcfModule : public Module {
 	LadderFilter ladder;
 	Svf svf;
+	Rng noise;
 public:
 	enum { I_IN, I_CUTOFF, I_RES };
 	enum { O_LP24, O_LP12, O_BP, O_HP };
@@ -179,7 +180,7 @@ public:
 		for (int i = 0; i < TB; i++) {
 			const float hz = std::exp2(clampf(base + in[I_CUTOFF][i] * cv, 3.0f, 14.3f));
 			const float res = clampf(p[P_RES] + in[I_RES][i], 0.0f, 1.0f);
-			const float x = in[I_IN][i];
+			const float x = in[I_IN][i] + noise.white() * 1e-5f; // thermal-noise stand-in
 			out[O_LP24][i] = ladder.process(x * 0.7f, hz, res, drive) * 1.4f;
 			svf.process(x, hz, res);
 			out[O_LP12][i] = svf.lp;
