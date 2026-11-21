@@ -19,6 +19,7 @@ double mix_rate_for_tap = 48000.0; // set when a link starts (AudioServer mix ra
 constexpr uint32_t NOTE_MAGIC = 0x314E5341; // "ASN1", as in session.gd
 constexpr int NOTE_PKT = 30;
 constexpr double MAX_NOTE_DELAY = 0.08;
+constexpr double MAX_INTERVAL = 8.0; // seconds of voice a peer's delay line can hold
 enum { EVN_ON = 0, EVN_OFF, EVN_CC, EVN_BEND, EVN_HELLO, EVN_ACK };
 
 template <class T>
@@ -64,6 +65,18 @@ int32_t JamNetStreamPlayback::_mix(AudioFrame *p_buffer, float, int32_t p_frames
 		const int n = std::min<int>(p_frames - done, (int)buf.size());
 		AooSample *ch = buf.data();
 		if (peer->sink->process(&ch, n, now, nullptr, nullptr) != kAooOk) std::fill(buf.begin(), buf.begin() + n, 0.0f);
+		const int d = peer->dline_frames.load(std::memory_order_relaxed);
+		const int size = (int)peer->dline.size();
+		if (d > 0 && d < size) {
+			// Interval mode: hold the voice back d frames.
+			for (int i = 0; i < n; i++) {
+				peer->dline[peer->dline_w] = buf[i];
+				int r = peer->dline_w - d;
+				if (r < 0) r += size;
+				buf[i] = peer->dline[r];
+				peer->dline_w = (peer->dline_w + 1) % size;
+			}
+		}
 		for (int i = 0; i < n; i++) {
 			const float v = buf[i];
 			p_buffer[done + i] = AudioFrame{v, v};
@@ -178,6 +191,7 @@ void JamAudioLink::add_peer(int peer_id, const String &ip, int port) {
 	p->sink->setup(1, mix_rate, MAX_BLOCK, 0);
 	p->sink->setLatency(latency_ms / 1000.0);
 	p->sink->setEventHandler(&JamAudioLink::sink_event, p.get(), kAooEventModePoll);
+	p->dline.assign((size_t)(mix_rate * (MAX_INTERVAL + 0.5)), 0.0f);
 	{
 		std::lock_guard<std::mutex> lock(peers_mutex);
 		peers[peer_id] = p;
@@ -233,6 +247,11 @@ Dictionary JamAudioLink::get_peer_stats(int peer_id) {
 	d["note_rtt_ms"] = p->note_rtt.load() * 1000.0;
 	d["direct_in"] = p->direct_in.load();
 	d["direct_out"] = p->direct_out.load();
+	// Measured: their mic to our mix, and on to our ear.
+	const double ad = p->audio_delay.load();
+	d["audio_delay_ms"] = ad >= 0.0 ? ad * 1000.0 : -1.0;
+	d["mouth_to_ear_ms"] = ad >= 0.0 ? (ad + out_latency.load()) * 1000.0 : -1.0;
+	d["interval_hold_ms"] = p->dline_frames.load() * 1000.0 / AudioServer::get_singleton()->get_mix_rate();
 	if (p->sink) {
 		double fill = 0.0;
 		AooEndpoint ep{&p->addr, (AooAddrSize)sizeof(p->addr), peer_id};
@@ -244,8 +263,35 @@ Dictionary JamAudioLink::get_peer_stats(int peer_id) {
 void JamAudioLink::poll() {
 	if (!running.load()) return;
 	if (source) source->pollEvents();
+	{
+		std::lock_guard<std::mutex> lock(peers_mutex);
+		for (auto &kv : peers) kv.second->sink->pollEvents();
+	}
+	update_delays();
+}
+
+// Main thread. Estimates each voice's delay, and in interval mode holds it
+// back so that it reaches the ear exactly `interval` after it reached the
+// player's mic.
+void JamAudioLink::update_delays() {
+	const double iv = interval.load();
+	const double rate = AudioServer::get_singleton()->get_mix_rate();
 	std::lock_guard<std::mutex> lock(peers_mutex);
-	for (auto &kv : peers) kv.second->sink->pollEvents();
+	for (auto &kv : peers) {
+		JamPeerAudio &p = *kv.second;
+		double ad = std::max(p.rtt.load(), 0.0) * 0.5 + latency_ms / 1000.0 + (double)block_size / 48000.0 + p.their_cap.load();
+		p.audio_delay = p.streaming.load() ? ad : -1.0;
+		int want = 0;
+		if (iv > 0.0) want = (int)std::lround(std::clamp(iv - ad - out_latency.load(), 0.0, MAX_INTERVAL) * rate);
+		const int cur = p.dline_frames.load();
+		// Ignore jitter in the estimate: only move for changes over 5 ms.
+		if (want == 0 || cur == 0 || std::abs(want - cur) > (int)(0.005 * rate)) p.dline_frames.store(want);
+	}
+}
+
+void JamAudioLink::set_interval(double seconds) {
+	interval = std::clamp(seconds, 0.0, MAX_INTERVAL);
+	update_delays();
 }
 
 void AOO_CALL JamAudioLink::source_event(void *, const AooEvent *, AooThreadLevel) {}
@@ -313,7 +359,9 @@ void JamAudioLink::send_event(int type, int a, float value, double at) {
 }
 
 void JamAudioLink::send_hellos() {
-	PackedByteArray pkt = pack_event(my_id, EVN_HELLO, 0, 0.0f, shared_now(), NAN);
+	// value = our capture latency (ms), so they can tell how late our voice is.
+	const float cap_ms = capture.running() ? (float)(capture_latency * 1000.0) : 0.0f;
+	PackedByteArray pkt = pack_event(my_id, EVN_HELLO, 0, cap_ms, shared_now(), NAN);
 	std::lock_guard<std::mutex> lock(peers_mutex);
 	for (auto &kv : peers) sock.send(pkt.ptr(), NOTE_PKT, &kv.second->addr, sizeof(sockaddr_in));
 }
@@ -334,6 +382,7 @@ void JamAudioLink::handle_note_packet(const uint8_t *b, int n, const sockaddr_in
 	const double now = shared_now();
 	if (type == EVN_HELLO) {
 		p.direct_in = true;
+		p.their_cap = std::clamp((double)value, 0.0, 200.0) / 1000.0;
 		PackedByteArray ack = pack_event(my_id, EVN_ACK, 0, 0.0f, t, NAN);
 		sock.send(ack.ptr(), NOTE_PKT, &from, sizeof(from));
 		return;
@@ -357,12 +406,14 @@ void JamAudioLink::handle_note_packet(const uint8_t *b, int n, const sockaddr_in
 		std::nth_element(tmp, tmp + k, tmp + p.late_count);
 		p.delay = std::clamp((double)tmp[k] + 0.002, 0.0, MAX_NOTE_DELAY);
 	}
-	const double when = t + (steady.load() ? p.delay.load() : 0.0);
+	// Interval mode: exactly one interval after they played, at the ear.
+	const double iv = interval.load();
+	const double when = iv > 0.0 ? t + iv - out_latency.load() : t + (steady.load() ? p.delay.load() : 0.0);
 	double target = when;
 	jam::Event e;
 	switch (type) {
 		case EVN_ON:
-			if (!std::isnan(at)) target = std::max(when, at - out_latency.load());
+			if (!std::isnan(at)) target = std::max(when, at + iv - out_latency.load());
 			p.shift[a] = (float)(target - when);
 			e.type = jam::EV_NOTE_ON;
 			e.a = a;
@@ -660,6 +711,8 @@ void JamAudioLink::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("route_notes", "peer_id", "synth"), &JamAudioLink::route_notes);
 	ClassDB::bind_method(D_METHOD("set_clock", "offset", "output_latency"), &JamAudioLink::set_clock);
 	ClassDB::bind_method(D_METHOD("set_steady_timing", "on"), &JamAudioLink::set_steady_timing);
+	ClassDB::bind_method(D_METHOD("set_interval", "seconds"), &JamAudioLink::set_interval);
+	ClassDB::bind_method(D_METHOD("get_interval"), &JamAudioLink::get_interval);
 	ClassDB::bind_method(D_METHOD("send_event", "type", "a", "value", "at"), &JamAudioLink::send_event);
 	ClassDB::bind_static_method("JamAudioLink", D_METHOD("pack_event", "sender", "type", "a", "value", "t", "at"), &JamAudioLink::pack_event);
 	ClassDB::bind_method(D_METHOD("get_block_size"), &JamAudioLink::get_block_size);

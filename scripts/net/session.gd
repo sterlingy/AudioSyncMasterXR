@@ -38,6 +38,7 @@ signal players_changed
 signal status_changed(text: String)
 ## Host: a player suggested a tempo (only when approve_tempo is on).
 signal tempo_suggested(id: int, who: String, bpm: float)
+signal interval_changed(bars: int)
 
 enum Role { OFFLINE, HOST, CLIENT }
 enum Ev { ON, OFF, CC, BEND, HELLO, ACK }
@@ -50,6 +51,9 @@ const SNAPSHOT_KINDS := ["sound", "seq", "loop"]
 const CH_NOTES := 1
 const CH_CLOCK := 2
 const MAX_NOTE_DELAY := 0.08
+## Above this (sound from a player reaching your ear), suggest interval mode.
+const HIGH_LATENCY_MS := 40.0
+const MAX_INTERVAL_S := 8.0 # what the audio link can hold back
 
 var role := Role.OFFLINE
 var player_name := "Player"
@@ -59,6 +63,9 @@ var steady_timing := true
 ## Host: players' tempo changes wait for Accept (tempo_suggested); off = apply at once.
 var approve_tempo := true
 var suggestion := {} # host: the latest tempo suggestion {id, who, bpm}
+## Interval mode (host decides for everyone): others' live parts play exactly
+## this many bars after they were played, so they land in time. 0 = live.
+var interval_bars := 0
 var clock := ClockSync.new()
 var status := "Not in a session"
 var notes_received := 0
@@ -94,6 +101,8 @@ func _ready() -> void:
 	MasterLooper.changed.connect(_update_audibility)
 	Transport.state_dirty.connect(_on_transport_dirty)
 	Transport.request.connect(_on_transport_request)
+	Transport.tempo_changed.connect(_apply_interval.unbind(1))
+	Transport.meter_changed.connect(_apply_interval.unbind(1))
 	var saved: Variant = Settings.get_value("player_name")
 	player_name = str(saved) if saved else "Player"
 	input_channel = int(Settings.get_value("audio_channel"))
@@ -201,6 +210,8 @@ func leave() -> void:
 	MasterLooper.is_host = true
 	MasterLooper.local_owner = "me"
 	_sent_hash.clear()
+	if interval_bars != 0:
+		_set_interval(0)
 	_set_status("Not in a session")
 	players_changed.emit()
 
@@ -265,6 +276,7 @@ func _hello(info: Dictionary) -> void:
 	for p in players.values():
 		list.append(_public(p))
 	rpc_id(id, "_welcome", list, Transport.get_state(), MasterLooper.export_layers())
+	rpc_id(id, "_interval", interval_bars)
 	for other in players:
 		if other != 1:
 			rpc_id(other, "_player_joined", info)
@@ -544,6 +556,74 @@ func _transport_request(action: String, value: Variant) -> void:
 			Transport.set_beats_per_bar(int(value))
 
 
+# ---- Interval mode
+
+## Seconds that others' live parts are held back (0 in live mode).
+func interval_seconds() -> float:
+	if interval_bars <= 0:
+		return 0.0
+	return minf(interval_bars * Transport.beats_per_bar * 60.0 / Transport.bpm, MAX_INTERVAL_S)
+
+
+## Live (0) or interval mode with 1-2 bars. Clients ask the host.
+func set_interval_bars(n: int) -> void:
+	n = clampi(n, 0, 2)
+	if role == Role.CLIENT:
+		rpc_id(1, "_interval_request", n)
+		return
+	_set_interval(n)
+	if is_host() and players.size() > 1:
+		rpc("_interval", n)
+
+
+@rpc("authority", "reliable")
+func _interval(n: int) -> void:
+	_set_interval(n)
+
+
+@rpc("any_peer", "reliable")
+func _interval_request(n: int) -> void:
+	if is_host():
+		set_interval_bars(n)
+
+
+func _set_interval(n: int) -> void:
+	interval_bars = clampi(n, 0, 2)
+	_apply_interval()
+	interval_changed.emit(interval_bars)
+
+
+func _apply_interval() -> void:
+	if audio:
+		audio.set_interval(interval_seconds())
+
+
+## The remote player whose sound reaches you latest: {name, ms} (ms = -1 if nobody).
+func worst_latency() -> Dictionary:
+	var out := {"name": "", "ms": -1.0}
+	for id in players:
+		var p: Dictionary = players[id]
+		if not p.has("rig"):
+			continue
+		var ms := ear_ms(p)
+		if ms > float(out.ms):
+			out = {"name": p.name, "ms": ms}
+	return out
+
+
+## How late a player's live notes (or measured audio, if later) reach your ear in live mode.
+func ear_ms(p: Dictionary) -> float:
+	var delay: float = p.delay
+	var last: float = p.last_late
+	if p.has("native"):
+		delay = p.native.note_delay_ms / 1000.0
+		last = p.native.last_late_ms / 1000.0
+	var ms: float = ((delay if steady_timing else maxf(last, 0.0)) + AudioServer.get_output_latency()) * 1000.0
+	if p.has("native") and float(p.native.get("mouth_to_ear_ms", -1.0)) > 0.0 and interval_bars == 0:
+		ms = maxf(ms, float(p.native.mouth_to_ear_ms))
+	return ms
+
+
 ## Host: applies (true) or drops the pending tempo suggestion.
 func answer_suggestion(accept: bool) -> void:
 	if accept and not suggestion.is_empty() and is_host():
@@ -739,7 +819,9 @@ func _play_remote(p: Dictionary, e: Dictionary) -> void:
 	var now := Transport.now()
 	var late: float = now - e.t
 	p.last_late = late
-	var when: float = e.t + (p.delay if steady_timing else 0.0)
+	var iv := interval_seconds()
+	var out_lat := AudioServer.get_output_latency()
+	var when: float = e.t + iv - out_lat if iv > 0.0 else e.t + (p.delay if steady_timing else 0.0)
 	match e.type:
 		Ev.ON:
 			notes_received += 1
@@ -748,7 +830,7 @@ func _play_remote(p: Dictionary, e: Dictionary) -> void:
 				p.lateness.pop_front()
 			var target := when
 			if not is_nan(e.at):
-				target = maxf(when, e.at - AudioServer.get_output_latency())
+				target = maxf(when, e.at + iv - out_lat)
 			p.shift[e.a] = target - when
 			rig.synth.note_on(e.a, e.value, _frame(rig, target, now))
 		Ev.OFF:
@@ -856,6 +938,7 @@ func _ensure_audio() -> bool:
 		return false
 	audio.set_latency_ms(audio_buffer_ms)
 	audio.set_codec(audio_codec)
+	audio.set_interval(interval_seconds())
 	return true
 
 
@@ -986,20 +1069,27 @@ func latency_text(p: Dictionary) -> String:
 		return "you" + (" (host)" if is_host() else "")
 	var parts := []
 	parts.append("ping %s" % ("%.1f ms" % (p.rtt * 1000.0) if p.rtt >= 0.0 else "…"))
-	var delay: float = p.delay
-	var last: float = p.last_late
-	if p.has("native"):
-		delay = p.native.note_delay_ms / 1000.0
-		last = p.native.last_late_ms / 1000.0
-	var ear: float = (delay if steady_timing else maxf(last, 0.0)) + AudioServer.get_output_latency()
-	parts.append("notes reach you in %.0f ms" % (ear * 1000.0))
+	if interval_bars > 0:
+		parts.append("heard %d bar%s later (%.0f ms)" % [interval_bars, "" if interval_bars == 1 else "s", interval_seconds() * 1000.0])
+	else:
+		var delay: float = p.delay
+		var last: float = p.last_late
+		if p.has("native"):
+			delay = p.native.note_delay_ms / 1000.0
+			last = p.native.last_late_ms / 1000.0
+		var ear: float = (delay if steady_timing else maxf(last, 0.0)) + AudioServer.get_output_latency()
+		parts.append("notes reach you in %.0f ms" % (ear * 1000.0))
 	if not p.direct_out:
 		parts.append("via host")
 	if audio:
 		var st: Dictionary = audio.get_peer_stats(p.id)
-		if st.get("streaming", false):
-			var one_way: float = maxf(st.get("rtt_ms", 0.0), 0.0) * 0.5
-			parts.append("audio ~%.0f ms" % (one_way + audio_buffer_ms + AudioServer.get_output_latency() * 1000.0))
+		if st.get("streaming", false) and interval_bars == 0:
+			var m2e: float = st.get("mouth_to_ear_ms", -1.0)
+			if m2e > 0.0:
+				parts.append("audio %.0f ms mic to ear" % m2e)
+			else:
+				var one_way: float = maxf(st.get("rtt_ms", 0.0), 0.0) * 0.5
+				parts.append("audio ~%.0f ms" % (one_way + audio_buffer_ms + AudioServer.get_output_latency() * 1000.0))
 			if int(st.get("underruns", 0)) > 0:
 				parts.append("%d dropouts" % int(st.underruns))
 	return "  •  ".join(parts)

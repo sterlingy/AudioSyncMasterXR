@@ -19,6 +19,8 @@ var _exclusive: CheckBox
 var _in_meter: ProgressBar
 var _audio_info: Label
 var _in_peak := 0.0
+var _mode: OptionButton
+var _hint: Label
 
 
 func _ready() -> void:
@@ -127,6 +129,23 @@ func _ready() -> void:
 	_steady.button_pressed = Session.steady_timing
 	_steady.toggled.connect(func(on): Session.steady_timing = on)
 	add_child(_steady)
+	var mrow := HBoxContainer.new()
+	mrow.add_theme_constant_override("separation", 8)
+	add_child(mrow)
+	mrow.add_child(_label("Timing"))
+	_mode = OptionButton.new()
+	for t in ["Live", "Interval: 1 bar", "Interval: 2 bars"]:
+		_mode.add_item(t)
+	_mode.tooltip_text = "Interval mode plays everyone else exactly 1 or 2 bars after they played, so far-away players land in time (you hear the previous round). The host decides for everyone."
+	_mode.select(Session.interval_bars)
+	_mode.item_selected.connect(_on_mode)
+	mrow.add_child(_mode)
+	_hint = Label.new()
+	_hint.add_theme_color_override("font_color", Color(1.0, 0.8, 0.35))
+	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_hint.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	mrow.add_child(_hint)
+	Session.interval_changed.connect(_mode.select)
 	_list = VBoxContainer.new()
 	_list.add_theme_constant_override("separation", 6)
 	add_child(_list)
@@ -150,6 +169,17 @@ func _open_load() -> void:
 	fd.canceled.connect(fd.queue_free)
 	add_child(fd)
 	fd.popup_centered()
+
+
+func _on_mode(i: int) -> void:
+	Session.set_interval_bars(i)
+	_mode.select(Session.interval_bars) # clients wait for the host's answer
+
+
+func _exit_tree() -> void:
+	for pair in [[Session.players_changed, _rebuild], [Session.interval_changed, _mode.select]]:
+		if pair[0].is_connected(pair[1]):
+			pair[0].disconnect(pair[1])
 
 
 func _input_changed() -> void:
@@ -235,6 +265,12 @@ func _process(_d: float) -> void:
 			_audio_info.text += " The device refused exclusive mode."
 	else:
 		_audio_info.text = "Not sending. Everyone else's audio still plays here."
+	var worst := Session.worst_latency()
+	_hint.text = ""
+	if Session.interval_bars == 0 and float(worst.ms) > Session.HIGH_LATENCY_MS:
+		_hint.text = "%s reaches you %.0f ms late, too late to play tightly together. Try Interval mode." % [worst.name, worst.ms]
+	elif Session.interval_bars > 0 and Session.role == Session.Role.CLIENT:
+		_hint.text = "Interval mode is on (the host's choice)."
 	for id in _rows:
 		if Session.players.has(id):
 			var t := Session.latency_text(Session.players[id])

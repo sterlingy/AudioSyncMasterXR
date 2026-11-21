@@ -185,6 +185,28 @@ func _host() -> void:
 			lats[lats.size() / 2], lats[-1], int(st.get("underruns", 0)) - maxi(under0, 0)])
 	check(st.get("streaming", false), "client's audio stream arrives (AOO)")
 	check(peak > 0.2, "tone audible in the client's player stream")
+	var ad: float = st.get("audio_delay_ms", -1.0)
+	print("  audio: estimated delay mic->mix %.1f ms, mic->ear %.1f ms" % [ad, st.get("mouth_to_ear_ms", -1.0)])
+	check(ad > 0.0 and ad < 250.0, "audio delay estimated")
+
+	# Interval mode: the host turns it on for everyone; the client's voice is
+	# held back so it lands one bar after it was played.
+	Session.set_interval_bars(1)
+	var istate: Array = [null]
+	channel.reported.connect(func(d):
+		if d.has("interval"):
+			istate[0] = d)
+	channel.rpc_id(client_id, "report", {"cmd": "state"})
+	channel.rpc_id(client_id, "report", {"cmd": "tone", "seconds": 2.0})
+	await wait_until(func(): return istate[0] != null, 10.0)
+	await wait(1.5)
+	var ist: Dictionary = Session.audio.get_peer_stats(client_id)
+	var want := Session.interval_seconds() * 1000.0 - float(ist.get("audio_delay_ms", 0.0)) - AudioServer.get_output_latency() * 1000.0
+	print("  interval: %.0f ms; voice held back %.1f ms (expected %.1f ms)" % [Session.interval_seconds() * 1000.0, ist.get("interval_hold_ms", 0.0), want])
+	check(istate[0] != null and int(istate[0].interval) == 1, "client switched to interval mode")
+	check(absf(float(ist.get("interval_hold_ms", 0.0)) - want) < 8.0, "voice held back to land one interval later")
+	Session.set_interval_bars(0)
+	await wait(0.5)
 
 	# Audio loop: the client records one bar of its input into looper slot 2;
 	# the clip reaches us once and plays from the clock here.
@@ -219,7 +241,9 @@ func _client() -> void:
 		if d.get("cmd") == "tone":
 			_tone(float(d.get("seconds", 2.0)))
 		elif d.get("cmd") == "aloop":
-			_aloop())
+			_aloop()
+		elif d.get("cmd") == "state":
+			channel.rpc_id(1, "report", {"interval": Session.interval_bars}))
 	channel.finished.connect(func():
 		Session.leave()
 		get_tree().quit(0))

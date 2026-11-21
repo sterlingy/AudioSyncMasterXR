@@ -163,3 +163,47 @@ func test_native_notes_land_on_their_frame() -> void:
 	assert_almost_eq(float(on), 0.1 * SR, 2.0, "onset at the requested time (frame %d)" % on)
 	a.stop()
 	b.stop()
+
+
+func test_interval_mode_plays_notes_one_interval_later() -> void:
+	if not ClassDB.class_exists("JamAudioLink"):
+		pass_test("jamcore built without AOO")
+		return
+	var a: Object = ClassDB.instantiate("JamAudioLink")
+	var b: Object = ClassDB.instantiate("JamAudioLink")
+	assert_eq(a.start(0, 101), OK)
+	assert_eq(b.start(0, 202), OK)
+	a.add_peer(202, "127.0.0.1", b.get_port())
+	b.add_peer(101, "127.0.0.1", a.get_port())
+	a.set_clock(0.0, 0.0)
+	b.set_clock(0.0, 0.0)
+	a.set_interval(0.15)
+	var synth := JamSynth.new()
+	synth.instrument = "Pulsar"
+	var t0 := JamSynth.get_time()
+	synth.set_clock_anchor(t0, 0)
+	a.route_notes(202, synth)
+	var played := JamSynth.get_time()
+	b.send_event(Session.Ev.ON, 36, 1.0, NAN)
+	b.send_event(Session.Ev.OFF, 36, 0.0, NAN)
+	await wait_seconds(0.05)
+	var on := _onset(synth.render_offline(SR / 2))
+	assert_almost_eq(float(on), (played - t0 + 0.15) * SR, 48.0, "onset one interval after it was played (frame %d)" % on)
+	# Live mode again: the next note isn't held back.
+	a.set_interval(0.0)
+	assert_eq(a.get_interval(), 0.0)
+	a.stop()
+	b.stop()
+
+
+func test_interval_seconds_follow_tempo() -> void:
+	var bars := Session.interval_bars
+	Session.interval_bars = 1
+	Transport.bpm = 120.0
+	Transport.beats_per_bar = 4
+	assert_almost_eq(Session.interval_seconds(), 2.0, 1e-9)
+	Session.interval_bars = 2
+	Transport.bpm = 60.0
+	assert_almost_eq(Session.interval_seconds(), Session.MAX_INTERVAL_S, 1e-9, "capped at what the link can hold")
+	Session.interval_bars = bars
+	Transport.bpm = 120.0

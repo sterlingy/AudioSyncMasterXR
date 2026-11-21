@@ -37,6 +37,8 @@
 
 namespace godot {
 
+class JamAudioLink;
+
 struct JamPeerAudio {
 	int id = 0;
 	sockaddr_in addr{};
@@ -57,6 +59,19 @@ struct JamPeerAudio {
 	std::atomic<double> note_rtt{-1.0};
 	std::atomic<int> notes{0};
 	std::atomic<bool> direct_in{false}, direct_out{false};
+
+	// Audio delay: seconds from the sound reaching their mic to it being mixed
+	// here (-1 until they stream): their capture latency (from their HELLOs) +
+	// half the ping + our receive buffer + one block.
+	std::atomic<double> their_cap{0.0};
+	std::atomic<double> audio_delay{-1.0};
+
+	// Interval mode: their voice is held back so it lands exactly an interval
+	// after they played. Ring allocated once (main thread); the audio thread
+	// only reads dline_frames.
+	std::vector<float> dline;
+	int dline_w = 0; // audio thread only
+	std::atomic<int> dline_frames{0};
 
 	// Jam recording of this voice (created once, kept for the peer's lifetime).
 	jam::OutputTap *tap = nullptr;
@@ -129,6 +144,7 @@ class JamAudioLink : public RefCounted {
 	std::atomic<double> clock_offset{0.0}; // Transport.clock_offset
 	std::atomic<double> out_latency{0.0};
 	std::atomic<bool> steady{true};
+	std::atomic<double> interval{0.0}; // interval mode: remote parts play this much later (0 = live)
 	double next_hello = 0.0;
 	double shared_now() const { return jam::mono_seconds() + clock_offset.load(std::memory_order_relaxed); }
 	void handle_note_packet(const uint8_t *b, int n, const sockaddr_in &from);
@@ -202,7 +218,11 @@ public:
 	String get_codec() const { return codec; }
 	void set_block_size(int frames);
 
+	void update_delays();
+
 	void route_notes(int peer_id, Object *synth);
+	void set_interval(double seconds);
+	double get_interval() const { return interval.load(); }
 	void set_clock(double offset, double output_latency);
 	void set_steady_timing(bool on) { steady = on; }
 	void send_event(int type, int a, float value, double at);
