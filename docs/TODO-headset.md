@@ -19,6 +19,9 @@ is skipped because no headset is available.
 ## Needs real sound cards on two machines (with the user)
 9. **Smallest safe audio buffer**: the ZeroTier sweep (`net_test.gd -- --remote --sweep` here, `-- --join=<host IP>` on music-machine) showed 0 dropouts at 5-20 ms for PCM and Opus over a 14 ms ping, but both ends ran headless on Godot's dummy audio driver. Repeat with the app open on both machines (real output devices, mic on) and lower the default buffer (15 ms) if 8-10 ms stays clean.
 
+## Needs the user (online sessions, M8)
+10. **Where the connection server runs**: `server/asm_server.py` (see `server/README.md`) needs a machine with a public address and UDP 47900 open (a small cloud VM is enough). Then test a real online session: host on one network, join by room code from another (a phone hotspot works as the second network). Strict NATs will need the relay (not built).
+
 ## XR milestone (M6), needs the headset to verify
 - XR scene with the Shivoo XR rig (`addons/shivoo_xr` submodule from `D:\Godot_Projects\ShivooXRPlugin`, plus godot-xr-tools 4.5.x and OpenXR Vendors 5.1.x copied from the template project).
 - Panels in 3D: the flat panels rendered into SubViewports on movable XR panels, operated by fingertip/pinch (pattern from ChordMasterXR's XR controls).

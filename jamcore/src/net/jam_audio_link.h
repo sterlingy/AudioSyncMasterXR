@@ -238,6 +238,8 @@ public:
 
 	void update_delays();
 
+	// A raw datagram from the audio socket (connection server registration, hole punching).
+	void send_raw(const String &ip, int port, const PackedByteArray &data);
 	void set_instrument_audio(Object *synth); // null = off (send notes only)
 	bool is_instrument_audio() const { return inst_on.load(); }
 

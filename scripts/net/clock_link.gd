@@ -14,6 +14,7 @@ const MAGIC_PING := 0x50435341 # "ASCP"
 const MAGIC_PONG := 0x4F435341 # "ASCO"
 const MAGIC_TICK := 0x54435341 # "ASCT"
 const MAGIC_QUIT := 0x51435341 # "ASCQ"
+const MAGIC_SEND := 0x53435341 # "ASCS": main thread queued raw packets to send
 
 var is_host := false
 var port := 0
@@ -29,6 +30,7 @@ var _samples: Array = []
 var _running := false
 var _host_ip := ""
 var _host_port := 0
+var _outbox: Array = [] # [ip, port, bytes] for the thread to send (server registration, punching)
 
 
 func start_host(p_port: int) -> Error:
@@ -64,6 +66,16 @@ func _go() -> void:
 func ping() -> void:
 	if _running and not is_host:
 		_poke.put_packet(_word(MAGIC_TICK))
+
+
+## Sends a raw datagram from the clock socket (the thread owns the socket).
+func send_raw(ip: String, to_port: int, data: PackedByteArray) -> void:
+	if not _running:
+		return
+	_mutex.lock()
+	_outbox.append([ip, to_port, data])
+	_mutex.unlock()
+	_poke.put_packet(_word(MAGIC_SEND))
 
 
 ## Client: samples collected since the last call, as [t0, t1, t2].
@@ -104,11 +116,19 @@ func _loop() -> void:
 			var ip := _sock.get_packet_ip()
 			var from_port := _sock.get_packet_port()
 			var magic := b.decode_u32(0)
-			if (magic == MAGIC_QUIT or magic == MAGIC_TICK) and not ip.ends_with("127.0.0.1"):
+			if (magic == MAGIC_QUIT or magic == MAGIC_TICK or magic == MAGIC_SEND) and not ip.ends_with("127.0.0.1"):
 				continue # only this process pokes its own thread
 			match magic:
 				MAGIC_QUIT:
 					return
+				MAGIC_SEND:
+					_mutex.lock()
+					var out := _outbox
+					_outbox = []
+					_mutex.unlock()
+					for o in out:
+						_sock.set_dest_address(o[0], o[1])
+						_sock.put_packet(o[2])
 				MAGIC_PING:
 					if is_host:
 						b.encode_u32(0, MAGIC_PONG)

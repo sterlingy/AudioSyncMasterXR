@@ -11,6 +11,8 @@ var channel: Node
 var is_client := false
 var remote := false # two machines: --remote on the host, --join=IP on the client
 var join_ip := "127.0.0.1"
+var server_arg := "" # --server=ip:port: go through the connection server (room code)
+var room_arg := "" # client: --room=CODE
 var sweep := false # host: measure dropouts per buffer size and codec instead of the checks
 var failures := []
 
@@ -23,6 +25,11 @@ func _ready() -> void:
 			remote = true
 		elif a == "--sweep":
 			sweep = true
+		elif a.begins_with("--server="):
+			server_arg = a.trim_prefix("--server=")
+		elif a.begins_with("--room="):
+			room_arg = a.trim_prefix("--room=")
+			is_client = true
 		elif a.begins_with("--join="):
 			join_ip = a.trim_prefix("--join=")
 			is_client = true
@@ -87,18 +94,30 @@ func _host() -> void:
 	MasterLooper.audio_out = false
 	var rig := make_rig("Pulsar")
 	Session.player_name = "Host"
-	if Session.host(PORT) != OK:
-		print("can't host")
+	if server_arg != "":
+		Session.server = server_arg
+	if (Session.host_online(PORT) if server_arg != "" else Session.host(PORT)) != OK:
+		print("can't host: ", Session.status)
 		get_tree().quit(2)
 		return
 	Transport.clock_offset = SKEW
 	var pid := -1
+	if server_arg != "":
+		var got := await wait_until(func(): return Session.room_code != "", 10.0)
+		check(got, "room code from the connection server")
+		print("room code: ", Session.room_code)
+		if not got:
+			get_tree().quit(1)
+			return
 	if remote:
 		print("host: waiting for a client on port %d (run with --join=<this IP>)" % PORT)
 	else:
 		var exe := OS.get_executable_path()
-		pid = OS.create_process(exe, ["--headless", "--path", ProjectSettings.globalize_path("res://"),
-			"-s", "res://tests/tools/net_test.gd", "--", "--client"])
+		var cargs := ["--headless", "--path", ProjectSettings.globalize_path("res://"),
+			"-s", "res://tests/tools/net_test.gd", "--", "--client"]
+		if server_arg != "":
+			cargs.append_array(["--server=" + server_arg, "--room=" + Session.room_code])
+		pid = OS.create_process(exe, cargs)
 		print("host: started client process ", pid)
 	var joined := await wait_until(func(): return Session.players.size() == 2, 120.0 if remote else 20.0)
 	check(joined, "client joined")
@@ -311,7 +330,11 @@ func _client() -> void:
 	channel.finished.connect(func():
 		Session.leave()
 		get_tree().quit(0))
-	Session.join(join_ip, PORT)
+	if room_arg != "":
+		Session.server = server_arg
+		Session.join_online(room_arg)
+	else:
+		Session.join(join_ip, PORT)
 	var ok := await wait_until(func(): return Session.clock.samples.size() >= 12 and Transport.running \
 			and Session.players.size() == 2 and Session.players[1].direct_out, 20.0)
 	if not ok:

@@ -601,6 +601,13 @@ void JamAudioLink::feed_instrument_only() {
 	feed_busy.clear(std::memory_order_release);
 }
 
+void JamAudioLink::send_raw(const String &ip, int port, const PackedByteArray &data) {
+	if (!running.load() || data.size() == 0 || data.size() > 1400) return;
+	sockaddr_in to{};
+	if (!jam::UdpSocket::make_addr(ip.utf8().get_data(), (uint16_t)port, to)) return;
+	sock.send(data.ptr(), (int)data.size(), &to, sizeof(to));
+}
+
 void JamAudioLink::set_instrument_audio(Object *obj) {
 	JamSynth *js = Object::cast_to<JamSynth>(obj);
 	auto core = js ? js->get_core() : nullptr;
@@ -794,6 +801,7 @@ void JamAudioLink::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("set_block_size", "frames"), &JamAudioLink::set_block_size);
 	ClassDB::bind_method(D_METHOD("route_notes", "peer_id", "synth"), &JamAudioLink::route_notes);
 	ClassDB::bind_method(D_METHOD("set_instrument_audio", "synth"), &JamAudioLink::set_instrument_audio);
+	ClassDB::bind_method(D_METHOD("send_raw", "ip", "port", "data"), &JamAudioLink::send_raw);
 	ClassDB::bind_method(D_METHOD("is_instrument_audio"), &JamAudioLink::is_instrument_audio);
 	ClassDB::bind_method(D_METHOD("set_clock", "offset", "output_latency"), &JamAudioLink::set_clock);
 	ClassDB::bind_method(D_METHOD("set_steady_timing", "on"), &JamAudioLink::set_steady_timing);

@@ -20,6 +20,10 @@ var _in_meter: ProgressBar
 var _audio_info: Label
 var _in_peak := 0.0
 var _mode: OptionButton
+var _server: LineEdit
+var _code: LineEdit
+var _host_online: Button
+var _join_online: Button
 var _hint: Label
 
 
@@ -55,6 +59,31 @@ func _ready() -> void:
 	var load := _button("Load session…", _open_load)
 	load.tooltip_text = "Load a saved jam (session.json): tempo, your sound, sequencer and loops, and the master looper"
 	row.add_child(load)
+	var orow := HFlowContainer.new()
+	orow.add_theme_constant_override("h_separation", 8)
+	orow.add_theme_constant_override("v_separation", 6)
+	add_child(orow)
+	orow.add_child(_label("Online"))
+	_server = LineEdit.new()
+	_server.placeholder_text = "connection server, e.g. jam.example.com"
+	_server.text = Session.server
+	_server.custom_minimum_size.x = 260
+	_server.tooltip_text = "The connection server players on different networks use to find each other (server/asm_server.py)"
+	_server.text_changed.connect(func(t):
+		Session.set_server(t)
+		_refresh())
+	orow.add_child(_server)
+	_host_online = _button("Host online", func(): Session.host_online())
+	_host_online.tooltip_text = "Host and get a room code for players on other networks"
+	orow.add_child(_host_online)
+	_code = LineEdit.new()
+	_code.placeholder_text = "room code"
+	_code.custom_minimum_size.x = 110
+	_code.max_length = 6
+	_code.text_submitted.connect(func(t): Session.join_online(t))
+	orow.add_child(_code)
+	_join_online = _button("Join online", func(): Session.join_online(_code.text))
+	orow.add_child(_join_online)
 	_status = Label.new()
 	_status.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -252,6 +281,8 @@ func _refresh() -> void:
 	var online := Session.is_online()
 	_host.disabled = online
 	_join.disabled = online
+	_host_online.disabled = online or Session.server == ""
+	_join_online.disabled = online or Session.server == ""
 	_ip.editable = not online
 	_leave.disabled = not online
 	_status.text = Session.status

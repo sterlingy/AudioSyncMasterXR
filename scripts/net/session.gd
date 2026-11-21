@@ -68,6 +68,18 @@ var suggestion := {} # host: the latest tempo suggestion {id, who, bpm}
 ## Interval mode (host decides for everyone): others' live parts play exactly
 ## this many bars after they were played, so they land in time. 0 = live.
 var interval_bars := 0
+## Online sessions (players on different networks): the connection server
+## (server/asm_server.py) gives the host a room code and tells players each
+## other's public addresses; everything else still goes player to player.
+var server := ""
+var room_code := ""
+var rendezvous: Rendezvous
+var my_pub_audio: Array = [] # [ip, port] of our audio socket as the internet sees it
+var _t_reg := 0.0
+var _reg_count := 0
+var _rv_next := "" # what to ask the server next, after a short wait
+var _t_rv := 0.0
+var _host_tries := 0
 var _local_pose := {} # head/left/right Transform3D, set by the XR rig each frame
 var _local_pose_t := 0.0 # shared time it was set
 var _t_pose := 0.0
@@ -119,6 +131,7 @@ func _ready() -> void:
 	audio_codec = str(Settings.get_value("audio_codec"))
 	approve_tempo = bool(Settings.get_value("approve_tempo"))
 	instrument_audio = bool(Settings.get_value("instrument_audio"))
+	server = str(Settings.get_value("server"))
 	Transport.click_volume_db = float(Settings.get_value("click_volume_db"))
 	var dev_name := str(Settings.get_value("audio_device"))
 	if dev_name != "" and ClassDB.class_exists("JamAudioLink"):
@@ -174,8 +187,8 @@ func host(port := PORT) -> Error:
 	return OK
 
 
-func join(ip: String, port := PORT) -> Error:
-	leave()
+func join(ip: String, port := PORT, clock_ep: Array = [], online := false) -> Error:
+	leave(online)
 	var peer := ENetMultiplayerPeer.new()
 	var err := peer.create_client(ip, port)
 	if err != OK:
@@ -184,7 +197,9 @@ func join(ip: String, port := PORT) -> Error:
 	multiplayer.multiplayer_peer = peer
 	_open_udp()
 	_link = ClockLink.new()
-	if _link.start_client(ip, port + 1) != OK:
+	var clock_ip: String = clock_ep[0] if clock_ep.size() == 2 else ip
+	var clock_port: int = clock_ep[1] if clock_ep.size() == 2 else port + 1
+	if _link.start_client(clock_ip, clock_port) != OK:
 		_link = null
 	role = Role.CLIENT
 	_host_ip = ip
@@ -197,7 +212,12 @@ func join(ip: String, port := PORT) -> Error:
 	return OK
 
 
-func leave() -> void:
+func leave(keep_rendezvous := false) -> void:
+	if rendezvous and not keep_rendezvous:
+		rendezvous.close()
+		rendezvous = null
+		room_code = ""
+		my_pub_audio = []
 	for id in players.keys():
 		if id != my_id():
 			_remove_player(id)
@@ -253,12 +273,12 @@ func _on_peer_disconnected(id: int) -> void:
 func _local_info() -> Dictionary:
 	return {"id": my_id(), "name": player_name, "instrument": local_rig.instrument if local_rig else "Undertow",
 		"udp_port": _udp.get_local_port() if _udp.is_bound() else 0, "ip": "",
-		"audio_port": audio.get_port() if audio else 0}
+		"audio_port": audio.get_port() if audio else 0, "pub_audio": my_pub_audio}
 
 
 func _public(p: Dictionary) -> Dictionary:
 	return {"id": p.id, "name": p.name, "instrument": p.instrument, "udp_port": p.udp_port, "ip": p.ip,
-		"audio_port": p.get("audio_port", 0)}
+		"audio_port": p.get("audio_port", 0), "pub_audio": p.get("pub_audio", [])}
 
 
 func _clean_info(info: Dictionary, id: int) -> Dictionary:
@@ -267,7 +287,13 @@ func _clean_info(info: Dictionary, id: int) -> Dictionary:
 		inst = "Undertow"
 	return {"id": id, "name": str(info.get("name", "Player")).left(24), "instrument": inst,
 		"udp_port": clampi(int(info.get("udp_port", 0)), 0, 65535), "ip": str(info.get("ip", "")),
-		"audio_port": clampi(int(info.get("audio_port", 0)), 0, 65535)}
+		"audio_port": clampi(int(info.get("audio_port", 0)), 0, 65535), "pub_audio": _clean_ep(info.get("pub_audio", []))}
+
+
+static func _clean_ep(v: Variant) -> Array:
+	if typeof(v) == TYPE_ARRAY and v.size() == 2 and str(v[0]).is_valid_ip_address():
+		return [str(v[0]), clampi(int(v[1]), 1, 65535)]
+	return []
 
 
 @rpc("any_peer", "reliable")
@@ -570,6 +596,143 @@ func _transport_request(action: String, value: Variant) -> void:
 				Transport.set_tempo(b)
 		"meter":
 			Transport.set_beats_per_bar(int(value))
+
+
+# ---- Online (connection server)
+
+## Hosts as usual (LAN players can still join by IP) and gets a room code
+## from the connection server for players elsewhere.
+func host_online(port := PORT) -> Error:
+	var err := host(port)
+	if err != OK:
+		return err
+	rendezvous = Rendezvous.new()
+	var e := rendezvous.open(server)
+	if e != "":
+		rendezvous = null
+		_set_status(status + "  " + e)
+		return ERR_CANT_CONNECT
+	rendezvous.start_host()
+	_set_status("Getting a room code from %s…" % server)
+	return OK
+
+
+## Joins a room by its code through the connection server.
+func join_online(code: String) -> Error:
+	leave()
+	rendezvous = Rendezvous.new()
+	var e := rendezvous.open(server)
+	if e != "":
+		rendezvous = null
+		_set_status(e)
+		return ERR_CANT_CONNECT
+	_ensure_audio()
+	rendezvous.start_join(code)
+	_host_tries = 0
+	_set_status("Looking for room %s…" % code.strip_edges().to_upper())
+	return OK
+
+
+func set_server(addr: String) -> void:
+	server = addr.strip_edges()
+	Settings.set_value("server", server)
+
+
+func _poll_rendezvous(delta: float) -> void:
+	var rv := rendezvous
+	match rv.poll(delta):
+		"hosted":
+			room_code = rv.room
+			_register_sockets()
+			_later("me")
+			_set_status("Hosting online. Room code: %s  (players elsewhere press Join online and type it; on this network they can also join by IP: %s)" % [room_code, ", ".join(local_addresses())])
+			players_changed.emit()
+		"joined":
+			_register_sockets() # the audio socket exists already
+			_later("host")
+		"host_eps":
+			if rv.host_eps.has("enet") and rv.host_eps.has("clock"):
+				_later("me")
+			elif _host_tries < 10:
+				_host_tries += 1
+				_later("host") # the host's sockets haven't registered yet
+			else:
+				_fail("Room %s's host can't be reached." % rv.room)
+		"my_eps":
+			my_pub_audio = rv.my_eps.get("audio", [])
+			if is_host():
+				players[1].pub_audio = my_pub_audio
+			elif role == Role.OFFLINE:
+				_connect_online()
+		"punch":
+			for req in rv.punch_requests:
+				_punch(req.eps)
+			rv.punch_requests.clear()
+		"error":
+			if role == Role.OFFLINE:
+				var msg := rv.error
+				leave()
+				_set_status(msg)
+			else:
+				_set_status(status + "  (" + rv.error + ")")
+	if rendezvous == null:
+		return
+	if _rv_next != "":
+		_t_rv -= delta
+		if _t_rv <= 0.0:
+			if _rv_next == "host":
+				rendezvous.fetch_host()
+			else:
+				rendezvous.fetch_mine()
+			_rv_next = ""
+	if rendezvous.token != "":
+		_t_reg -= delta
+		if _t_reg <= 0.0:
+			_t_reg = 1.0 if _reg_count < 8 else 15.0
+			_reg_count += 1
+			_register_sockets()
+
+
+func _later(what: String) -> void:
+	_rv_next = what
+	_t_rv = 0.3 # let the registrations land first
+
+
+func _connect_online() -> void:
+	var e := rendezvous.host_eps
+	_set_status("Connecting to room %s…" % rendezvous.room)
+	if join(e.enet[0], e.enet[1], e.clock, true) != OK:
+		return
+	_reg_count = 0
+	_register_sockets() # the host is told our addresses and opens its side
+
+
+## Each socket tells the server where it is (and keeps its router mapping open).
+func _register_sockets() -> void:
+	if rendezvous == null or rendezvous.token == "":
+		return
+	var ip := rendezvous.server_ip
+	var port := rendezvous.server_port
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	if enet and enet.host:
+		enet.host.socket_send(ip, port, rendezvous.register_packet("enet"))
+	if _link:
+		_link.send_raw(ip, port, rendezvous.register_packet("clock"))
+	if audio:
+		audio.send_raw(ip, port, rendezvous.register_packet("audio"))
+
+
+## Host: sends toward a joiner's public addresses so our router lets their packets in.
+func _punch(eps: Dictionary) -> void:
+	var pkt := "ASMP".to_ascii_buffer()
+	var enet := multiplayer.multiplayer_peer as ENetMultiplayerPeer
+	for i in 3:
+		if eps.has("enet") and enet and enet.host:
+			enet.host.socket_send(eps.enet[0], eps.enet[1], pkt)
+		if eps.has("clock") and _link:
+			_link.send_raw(eps.clock[0], eps.clock[1], pkt)
+		if eps.has("audio") and audio:
+			audio.send_raw(eps.audio[0], eps.audio[1], pkt)
 
 
 # ---- Avatars
@@ -933,6 +1096,8 @@ func _process(delta: float) -> void:
 		var n := _mic_capture.get_frames_available()
 		if n > 0:
 			audio.push_input(_mic_capture.get_buffer(n), int(AudioServer.get_mix_rate()))
+	if rendezvous:
+		_poll_rendezvous(delta)
 	if not is_online():
 		return
 	_poll_udp()
@@ -1012,7 +1177,13 @@ func _ensure_audio() -> bool:
 func _connect_audio(p: Dictionary) -> void:
 	if audio == null or p.get("audio_port", 0) <= 0 or p.ip == "":
 		return
-	audio.add_peer(p.id, p.ip, p.audio_port)
+	var ip: String = p.ip
+	var port: int = p.audio_port
+	var pub: Array = p.get("pub_audio", [])
+	if pub.size() == 2 and my_pub_audio.size() == 2 and pub[0] != my_pub_audio[0]:
+		ip = pub[0] # different networks: their router's address (hole punched by our HELLOs)
+		port = pub[1]
+	audio.add_peer(p.id, ip, port)
 	if p.voice == null:
 		p.voice = AudioStreamPlayer.new()
 		p.voice.name = "Voice%d" % p.id
