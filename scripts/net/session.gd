@@ -50,6 +50,8 @@ const PKT_SIZE := 30
 const SNAPSHOT_KINDS := ["sound", "seq", "loop"]
 const CH_NOTES := 1
 const CH_CLOCK := 2
+const CH_POSE := 3
+const POSE_RATE := 30.0 # avatar poses sent per second
 const MAX_NOTE_DELAY := 0.08
 ## Above this (sound from a player reaching your ear), suggest interval mode.
 const HIGH_LATENCY_MS := 40.0
@@ -66,6 +68,9 @@ var suggestion := {} # host: the latest tempo suggestion {id, who, bpm}
 ## Interval mode (host decides for everyone): others' live parts play exactly
 ## this many bars after they were played, so they land in time. 0 = live.
 var interval_bars := 0
+var _local_pose := {} # head/left/right Transform3D, set by the XR rig each frame
+var _local_pose_t := 0.0 # shared time it was set
+var _t_pose := 0.0
 var clock := ClockSync.new()
 var status := "Not in a session"
 var notes_received := 0
@@ -567,6 +572,52 @@ func _transport_request(action: String, value: Variant) -> void:
 			Transport.set_beats_per_bar(int(value))
 
 
+# ---- Avatars
+
+## Called by the XR rig every frame with this player's head and hands
+## (play-space transforms). Sent to the others at POSE_RATE.
+func set_local_pose(head: Transform3D, left: Transform3D, right: Transform3D) -> void:
+	_local_pose = {"head": head, "left": left, "right": right}
+	_local_pose_t = Transport.now()
+
+
+func clear_local_pose() -> void:
+	_local_pose = {}
+
+
+@rpc("any_peer", "unreliable_ordered", "call_remote", CH_POSE)
+func _pose(t: float, packed: PackedFloat32Array) -> void:
+	var p: Dictionary = players.get(multiplayer.get_remote_sender_id(), {})
+	if not p.has("rig"):
+		return
+	if not p.has("poses"):
+		p.poses = PoseBuffer.new()
+	p.poses.add(t, packed)
+
+
+## How far behind a remote avatar is shown: when that player's sound reaches
+## your ear. Their streamed audio (voice, real instrument, audio mode) if they
+## send any, else their live notes; the full interval in interval mode.
+func avatar_delay(p: Dictionary) -> float:
+	if interval_bars > 0:
+		return interval_seconds()
+	var out_lat := AudioServer.get_output_latency()
+	var st: Dictionary = p.get("native", {})
+	if st.get("streaming", false) and float(st.get("audio_delay_ms", -1.0)) > 0.0:
+		return float(st.audio_delay_ms) / 1000.0 + out_lat
+	var delay: float = st.note_delay_ms / 1000.0 if st.has("note_delay_ms") else float(p.get("delay", 0.0))
+	var last: float = st.last_late_ms / 1000.0 if st.has("last_late_ms") else float(p.get("last_late", 0.0))
+	return (delay if steady_timing else maxf(last, 0.0)) + out_lat
+
+
+## A remote player's head/left/right as you should see them now ({} if none).
+func remote_pose(id: int) -> Dictionary:
+	var p: Dictionary = players.get(id, {})
+	if not p.has("poses"):
+		return {}
+	return p.poses.sample(Transport.now() - avatar_delay(p))
+
+
 # ---- Interval mode
 
 ## Seconds that others' live parts are held back (0 in live mode).
@@ -926,6 +977,10 @@ func _process(delta: float) -> void:
 		for p in players.values():
 			if p.has("rig"):
 				p.delay = delay_from(p.lateness)
+	_t_pose -= delta
+	if _t_pose <= 0.0 and not _local_pose.is_empty() and players.size() > 1:
+		_t_pose = 1.0 / POSE_RATE
+		rpc("_pose", _local_pose_t, PoseBuffer.pack(_local_pose))
 	_t_snap -= delta
 	if _t_snap <= 0.0:
 		_t_snap = 0.25

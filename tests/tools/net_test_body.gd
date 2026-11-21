@@ -218,6 +218,18 @@ func _host() -> void:
 	Session.set_interval_bars(0)
 	await wait(0.5)
 
+	# Avatars: the client's head moves 1 m per second of shared time, so where
+	# we see it says how late we show it; it should match avatar_delay().
+	channel.rpc_id(client_id, "report", {"cmd": "pose"})
+	await wait_until(func(): return p.has("poses") and p.poses.size() > 20, 5.0)
+	await wait(0.3)
+	var pose := Session.remote_pose(client_id)
+	var shown_late := -1.0
+	if not pose.is_empty():
+		shown_late = fposmod(Transport.now(), 500.0) - pose.head.origin.x
+	print("  avatar: %d poses; shown %.1f ms late, avatar delay %.1f ms" % [p.get("poses", PoseBuffer.new()).size(), shown_late * 1000.0, Session.avatar_delay(p) * 1000.0])
+	check(not pose.is_empty() and absf(shown_late - Session.avatar_delay(p)) < 0.012, "remote avatar shown when its sound arrives")
+
 	# Audio mode: the client sends its instrument as audio; we mute our copy
 	# of its instrument and hear it through its stream instead.
 	channel.rpc_id(client_id, "report", {"cmd": "inst_audio"})
@@ -288,6 +300,8 @@ func _client() -> void:
 			_tone(float(d.get("seconds", 2.0)))
 		elif d.get("cmd") == "aloop":
 			_aloop()
+		elif d.get("cmd") == "pose":
+			_poses(3.0)
 		elif d.get("cmd") == "codec":
 			Session.set_audio_codec(str(d.codec))
 		elif d.get("cmd") == "inst_audio":
@@ -322,6 +336,16 @@ func _client() -> void:
 		"param_id": info.id, "param_value": rig.synth.get_param(info.id), "master_layers": MasterLooper.layers.size()})
 	await wait(300.0 if remote else 15.0) # the host sends "finish" when done
 	get_tree().quit(1)
+
+
+func _poses(seconds: float) -> void:
+	var end := Time.get_ticks_msec() + int(seconds * 1000.0)
+	while Time.get_ticks_msec() < end:
+		var x := fposmod(Transport.now(), 500.0)
+		Session.set_local_pose(Transform3D(Basis.IDENTITY, Vector3(x, 1.6, 0.0)),
+			Transform3D(Basis.IDENTITY, Vector3(x - 0.3, 1.0, -0.3)), Transform3D(Basis.IDENTITY, Vector3(x + 0.3, 1.0, -0.3)))
+		await get_tree().process_frame
+	Session.clear_local_pose()
 
 
 func _inst_audio() -> void:
