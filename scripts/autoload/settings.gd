@@ -13,6 +13,8 @@ const DEFAULTS := {
 	"net_target": "",
 	"master_volume_db": 0.0,
 	"instrument": "Undertow",
+	"player_name": "",
+	"last_host": "",
 }
 
 var _cfg := ConfigFile.new()

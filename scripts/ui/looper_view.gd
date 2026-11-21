@@ -114,7 +114,7 @@ func _refresh() -> void:
 
 func _push_master() -> void:
 	var data := rig.looper.export_slot()
-	if MasterLooper.add_layer(data) < 0:
+	if not MasterLooper.push(data):
 		_state.text = "Record something in this slot first."
 
 
@@ -136,13 +136,13 @@ func _refresh_master() -> void:
 		swatch.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 		row.add_child(swatch)
 		var l := Label.new()
-		l.text = "  %s  •  %d bar(s)  •  by %s" % [layer.instrument, layer.bars, layer.owner]
+		l.text = "  %s  •  %d bar(s)  •  by %s" % [layer.instrument, layer.bars, "me" if layer.owner == MasterLooper.local_owner else layer.owner_name]
 		l.custom_minimum_size.x = 360
 		row.add_child(l)
 		var id: int = layer.id
 		var mute := _button("Unmute" if layer.muted else "Mute", func(): MasterLooper.toggle_mute(id))
 		row.add_child(mute)
-		var del := _button("Delete", func(): MasterLooper.remove_layer(id))
+		var del := _button("Delete", func(): MasterLooper.request_remove(id))
 		del.disabled = not MasterLooper.can_delete(layer)
 		del.tooltip_text = "Only the layer's owner or the host can delete it"
 		row.add_child(del)

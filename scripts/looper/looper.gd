@@ -18,6 +18,12 @@ var rig: InstrumentRig
 var length_bars := 2
 var slots: Array[Dictionary] = []
 var current := 0
+## Set on other players' loopers when this headset listens to its own loops only.
+var silenced := false:
+	set(v):
+		silenced = v
+		if v:
+			_release_all()
 
 var _sounding := {} # note -> true
 
@@ -144,7 +150,7 @@ func _finish_layer(s: Dictionary) -> void:
 func schedule(from_beat: float, to_beat: float) -> void:
 	for s in slots:
 		_advance_state(s, to_beat)
-		if s.muted or s.layers.is_empty():
+		if silenced or s.muted or s.layers.is_empty():
 			continue
 		if not (s.state in [State.PLAYING, State.OVERDUB_ARMED, State.OVERDUBBING]):
 			continue
@@ -202,6 +208,34 @@ func _release_all() -> void:
 		for note in _sounding:
 			rig.synth.note_off(note)
 	_sounding.clear()
+
+
+## What other players need to play this looper in sync: finished layers and
+## whether each slot is playing. Recording in progress isn't shared; the notes
+## arrive live and the layer follows when the pass ends.
+func to_net() -> Array:
+	var out := []
+	for s in slots:
+		var st := State.EMPTY
+		if not s.layers.is_empty():
+			st = State.STOPPED if s.state == State.STOPPED else State.PLAYING
+		out.append({"state": st, "start": s.start, "bars": s.bars, "layers": s.layers, "muted": s.muted})
+	return out
+
+
+## Mirrors another player's looper (see to_net()).
+func apply_net(data: Array) -> void:
+	for i in mini(data.size(), SLOTS):
+		var d: Dictionary = data[i]
+		var s := _empty_slot()
+		s.state = int(d.get("state", State.EMPTY))
+		s.start = float(d.get("start", 0.0))
+		s.bars = maxi(1, int(d.get("bars", 2)))
+		s.layers = d.get("layers", [])
+		s.muted = bool(d.get("muted", false))
+		slots[i] = s
+	_release_all()
+	changed.emit()
 
 
 ## A finished loop as a portable layer for the master looper.

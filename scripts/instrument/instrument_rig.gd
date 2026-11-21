@@ -29,6 +29,9 @@ const MAP_PATH := "user://midi_map.cfg"
 @export var local_input := true
 ## Play through an AudioStreamPlayer3D at this node's parent (XR), or flat.
 @export var spatial := false
+## Another player's instrument, mirrored by the Session: no local input, no
+## recording; notes, sound, sequencer and loops arrive over the network.
+var remote := false
 
 var synth := JamSynth.new()
 var player: Node
@@ -68,7 +71,13 @@ func _ready() -> void:
 		Midi.note_off.connect(func(n): release_note(n))
 		Midi.control_change.connect(_on_cc)
 		Midi.pitch_bend.connect(func(v): bend(v))
-		Midi.pressure.connect(func(v): synth.control_change(128, v))
+		Midi.pressure.connect(func(v):
+			synth.control_change(128, v)
+			played.emit({"type": "cc", "cc": 128, "value": v}))
+
+
+func _exit_tree() -> void:
+	Transport.unregister(self)
 
 
 func set_instrument(type: String) -> void:
@@ -111,15 +120,17 @@ func heard_beat() -> float:
 
 func play_note(note: int, velocity: float, frame := -1) -> void:
 	var beat := heard_beat()
+	var quantized := false
 	if frame < 0 and Transport.running and Transport.live_quantize and beat >= 0.0:
 		var target := Transport.next_grid(beat)
 		frame = Transport.frame_for(synth, target)
 		_live_shift[note] = frame - synth.get_frame_position()
 		beat = target
+		quantized = true
 	synth.note_on(note, velocity, frame)
 	if Transport.running:
 		sequencer.record_note(note, velocity, beat)
-	played.emit({"type": "on", "note": note, "velocity": velocity, "beat": beat})
+	played.emit({"type": "on", "note": note, "velocity": velocity, "beat": beat, "quantized": quantized})
 
 
 func release_note(note: int, frame := -1) -> void:

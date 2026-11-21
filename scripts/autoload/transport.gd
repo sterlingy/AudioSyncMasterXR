@@ -16,6 +16,10 @@ signal state_changed(running: bool)
 signal tempo_changed(bpm: float)
 signal meter_changed(beats_per_bar: int)
 signal quantize_changed
+## Host side: start/stop/tempo/meter changed, so the session broadcasts get_state().
+signal state_dirty
+## Follower side: the player asked for a change only the host may make.
+signal request(action: String, value: Variant)
 
 const GRIDS := [
 	["1/1", 4.0], ["1/2", 2.0], ["1/4", 1.0], ["1/8", 0.5], ["1/16", 0.25], ["1/32", 0.125],
@@ -27,6 +31,9 @@ var beats_per_bar := 4
 var running := false
 var clock_offset := 0.0
 var lookahead := 0.12
+## True on session clients: the host owns tempo and start/stop, so changes
+## become requests and the host's state arrives through apply_state().
+var follower := false
 
 var metronome_on := true
 var count_in_bars := 1
@@ -98,6 +105,9 @@ func unregister(client: Object) -> void:
 func start() -> void:
 	if running:
 		return
+	if follower:
+		request.emit("start", null)
+		return
 	var count_in := float(count_in_bars * beats_per_bar)
 	anchor_time = now() + 0.1
 	anchor_beat = -count_in
@@ -105,11 +115,20 @@ func start() -> void:
 	_pending_bpm = 0.0
 	running = true
 	state_changed.emit(true)
+	state_dirty.emit()
 
 
 func stop() -> void:
 	if not running:
 		return
+	if follower:
+		request.emit("stop", null)
+		return
+	_halt()
+	state_dirty.emit()
+
+
+func _halt() -> void:
 	running = false
 	anchor_beat = 0.0
 	for c in _clients:
@@ -128,9 +147,13 @@ func toggle() -> void:
 
 func set_tempo(new_bpm: float) -> void:
 	new_bpm = clampf(new_bpm, 30.0, 300.0)
+	if follower:
+		request.emit("tempo", new_bpm)
+		return
 	if not running:
 		bpm = new_bpm
 		tempo_changed.emit(bpm)
+		state_dirty.emit()
 		return
 	# Switch on the next bar line that hasn't been scheduled yet.
 	var b := maxf(current_beat(), _scheduled_until)
@@ -138,11 +161,49 @@ func set_tempo(new_bpm: float) -> void:
 	if _pending_beat <= _scheduled_until:
 		_pending_beat += beats_per_bar
 	_pending_bpm = new_bpm
+	state_dirty.emit()
 
 
 func set_beats_per_bar(n: int) -> void:
+	if follower:
+		request.emit("meter", n)
+		return
 	beats_per_bar = clampi(n, 1, 16)
 	meter_changed.emit(beats_per_bar)
+	state_dirty.emit()
+
+
+## The tempo map as the host shares it. Times are on the shared clock.
+func get_state() -> Dictionary:
+	return {"running": running, "anchor_time": anchor_time, "anchor_beat": anchor_beat, "bpm": bpm,
+		"beats_per_bar": beats_per_bar, "pending_bpm": _pending_bpm, "pending_beat": _pending_beat}
+
+
+## Follows the host's tempo map. Beats already past are not scheduled again.
+func apply_state(s: Dictionary) -> void:
+	var was_running := running
+	var old_bpm := bpm
+	if int(s.get("beats_per_bar", beats_per_bar)) != beats_per_bar:
+		beats_per_bar = clampi(int(s.beats_per_bar), 1, 16)
+		meter_changed.emit(beats_per_bar)
+	if not bool(s.get("running", false)):
+		bpm = float(s.get("bpm", bpm))
+		if was_running:
+			_halt()
+		if bpm != old_bpm:
+			tempo_changed.emit(bpm)
+		return
+	anchor_time = float(s.anchor_time)
+	anchor_beat = float(s.anchor_beat)
+	bpm = float(s.bpm)
+	_pending_bpm = float(s.get("pending_bpm", 0.0))
+	_pending_beat = float(s.get("pending_beat", 0.0))
+	running = true
+	if not was_running:
+		_scheduled_until = maxf(anchor_beat, beat_at(now()))
+		state_changed.emit(true)
+	if bpm != old_bpm:
+		tempo_changed.emit(bpm)
 
 
 func set_quantize(enabled: bool, grid: float, live: bool) -> void:

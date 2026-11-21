@@ -9,6 +9,11 @@ extends Node
 ##
 ## Listening (per headset): MASTER_AND_LIVE, OWN_AND_LIVE, OWN_ONLY. Muting a
 ## layer only affects this headset; deleting needs the owner or the host.
+##
+## In a session the host keeps the authoritative list: push() and
+## request_remove() go to the host (through `net`, the Session), which
+## checks permissions and sends the result to everyone. Joiners get the
+## whole list. `owner` is the owner's peer id as a string.
 
 signal changed
 
@@ -19,6 +24,7 @@ var listen := Listen.MASTER_AND_LIVE
 var local_owner := "me"
 var audio_out := true # false in tests: layers render offline instead of playing
 var is_host := true
+var net: Object = null # Session: is_online(), master_push(data), master_remove(id)
 var _next_id := 1
 
 
@@ -29,9 +35,34 @@ func _ready() -> void:
 			l.synth.tempo = bpm)
 
 
-func add_layer(data: Dictionary, owner := "") -> int:
+func _online() -> bool:
+	return net != null and net.is_online()
+
+
+## UI entry point: add a finished loop (through the host when in a session).
+func push(data: Dictionary) -> bool:
 	if data.get("events", []).is_empty():
+		return false
+	if _online():
+		net.master_push(data)
+		return true
+	return add_layer(data) > 0
+
+
+## UI entry point: delete a layer (the host checks permission in a session).
+func request_remove(id: int) -> void:
+	if _online():
+		net.master_remove(id)
+	else:
+		remove_layer(id)
+
+
+func add_layer(data: Dictionary, owner := "", id := -1, owner_name := "") -> int:
+	if data.get("events", []).is_empty() or not data.get("instrument", "") in JamSynth.get_instrument_types():
 		return -1
+	if id < 0:
+		id = _next_id
+	_next_id = maxi(_next_id, id + 1)
 	var synth := JamSynth.new()
 	synth.instrument = data.instrument
 	synth.set_params(data.get("params", {}))
@@ -42,13 +73,43 @@ func add_layer(data: Dictionary, owner := "") -> int:
 		player.stream = synth
 		add_child(player)
 		player.play()
-	var layer := {"id": _next_id, "owner": owner if owner != "" else local_owner, "instrument": data.instrument,
-		"bars": int(data.bars), "events": data.events, "params": data.get("params", {}),
-		"muted": false, "synth": synth, "player": player, "sounding": {}}
-	_next_id += 1
+	var own := owner if owner != "" else local_owner
+	var layer := {"id": id, "owner": own, "owner_name": owner_name if owner_name != "" else own,
+		"instrument": data.instrument, "bars": maxi(1, int(data.bars)), "events": data.events,
+		"params": data.get("params", {}), "muted": false, "synth": synth, "player": player, "sounding": {}}
 	layers.append(layer)
 	changed.emit()
-	return layer.id
+	return id
+
+
+## Layers in a form that can go over the network.
+func export_layer(l: Dictionary) -> Dictionary:
+	return {"id": l.id, "owner": l.owner, "owner_name": l.owner_name, "instrument": l.instrument,
+		"bars": l.bars, "events": l.events, "params": l.params}
+
+
+func export_layers() -> Array:
+	return layers.map(export_layer)
+
+
+func find(id: int) -> Dictionary:
+	for l in layers:
+		if l.id == id:
+			return l
+	return {}
+
+
+func import_layer(d: Dictionary) -> void:
+	if not find(int(d.get("id", -1))).is_empty():
+		return
+	add_layer(d, str(d.get("owner", "")), int(d.get("id", -1)), str(d.get("owner_name", "")))
+
+
+func import_layers(list: Array) -> void:
+	for l in layers.duplicate():
+		force_remove(l.id)
+	for d in list:
+		import_layer(d)
 
 
 func can_delete(layer: Dictionary) -> bool:
@@ -56,10 +117,16 @@ func can_delete(layer: Dictionary) -> bool:
 
 
 func remove_layer(id: int) -> bool:
+	var l := find(id)
+	if l.is_empty() or not can_delete(l):
+		return false
+	return force_remove(id)
+
+
+## Removes without a permission check (the host already decided).
+func force_remove(id: int) -> bool:
 	for i in layers.size():
 		if layers[i].id == id:
-			if not can_delete(layers[i]):
-				return false
 			layers[i].synth.all_notes_off()
 			if layers[i].player:
 				layers[i].player.queue_free()
@@ -125,4 +192,5 @@ func _release(l: Dictionary) -> void:
 
 func clear_all() -> void:
 	for l in layers.duplicate():
-		remove_layer(l.id)
+		force_remove(l.id)
+	_next_id = 1

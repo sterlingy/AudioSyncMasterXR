@@ -19,6 +19,7 @@ Settings="*res://scripts/autoload/settings.gd"
 Midi="*res://scripts/autoload/midi_input.gd"
 Transport="*res://scripts/autoload/transport.gd"
 MasterLooper="*res://scripts/autoload/master_looper.gd"
+Session="*res://scripts/net/session.gd"
 
 [display]
 

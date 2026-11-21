@@ -10,6 +10,7 @@ var tangle: TangleEditor
 var keys: KeyboardView
 var seq_view: SequencerView
 var loop_view: LooperView
+var players_view: PlayersView
 var _tabs: TabBar
 var _play: Button
 var _pos: Label
@@ -28,6 +29,7 @@ var _save_dialog: ConfirmationDialog
 var _save_name: LineEdit
 var _shot_path := ""
 var _shot_frames := 45
+var _shot_after := 0.0 # seconds; used instead of frames when set
 
 
 func _ready() -> void:
@@ -40,6 +42,7 @@ func _ready() -> void:
 	rig.name = "LocalInstrument"
 	rig.instrument = String(Settings.get_value("instrument"))
 	add_child(rig)
+	Session.bind_rig(rig)
 
 	var root := VBoxContainer.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -57,6 +60,7 @@ func _ready() -> void:
 	_tabs.add_tab("Sound")
 	_tabs.add_tab("Sequencer")
 	_tabs.add_tab("Looper")
+	_tabs.add_tab("Jam")
 	_tabs.tab_changed.connect(func(_i): _show_body())
 	root.add_child(_tabs)
 	var body := Control.new()
@@ -75,6 +79,9 @@ func _ready() -> void:
 	loop_view = LooperView.new()
 	loop_view.set_anchors_preset(Control.PRESET_FULL_RECT)
 	body.add_child(loop_view)
+	players_view = PlayersView.new()
+	players_view.set_anchors_preset(Control.PRESET_FULL_RECT)
+	body.add_child(players_view)
 
 	keys = KeyboardView.new()
 	keys.custom_minimum_size.y = 130
@@ -211,6 +218,7 @@ func _build_transport_bar() -> Control:
 	bpb.max_value = 16
 	bpb.value = Transport.beats_per_bar
 	bpb.value_changed.connect(func(v): Transport.set_beats_per_bar(int(v)))
+	Transport.meter_changed.connect(func(n): bpb.set_value_no_signal(n))
 	bar.add_child(bpb)
 	var met := CheckButton.new()
 	met.text = "Metronome"
@@ -258,6 +266,7 @@ func _show_body() -> void:
 	tangle.visible = sound and is_tangle
 	seq_view.visible = _tabs.current_tab == 1
 	loop_view.visible = _tabs.current_tab == 2
+	players_view.visible = _tabs.current_tab == 3
 	if seq_view.visible:
 		seq_view.bind(rig.sequencer, rig.color(), rig.instrument == "Pulsar")
 	if loop_view.visible:
@@ -390,7 +399,8 @@ func _process(_delta: float) -> void:
 	_pos.text = Transport.position_text() if Transport.running else "1.1"
 	if _shot_path != "":
 		_shot_frames -= 1
-		if _shot_frames <= 0:
+		_shot_after -= _delta
+		if _shot_frames <= 0 and _shot_after <= 0.0:
 			var img := get_viewport().get_texture().get_image()
 			DirAccess.make_dir_recursive_absolute(_shot_path.get_base_dir())
 			img.save_png(_shot_path)
@@ -414,6 +424,11 @@ func _unhandled_key_input(event: InputEvent) -> void:
 
 func _parse_dev_args() -> void:
 	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--name="):
+			Session.player_name = a.trim_prefix("--name=")
+		elif a.begins_with("--shot-after="):
+			_shot_after = float(a.trim_prefix("--shot-after="))
+	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--shot="):
 			_shot_path = a.trim_prefix("--shot=")
 		elif a.begins_with("--instrument="):
@@ -424,5 +439,11 @@ func _parse_dev_args() -> void:
 			_tabs.current_tab = 2
 		elif a == "--play":
 			Transport.start()
+		elif a == "--jam":
+			_tabs.current_tab = 3
+		elif a == "--host":
+			Session.host()
+		elif a.begins_with("--join="):
+			Session.join(a.trim_prefix("--join="))
 		elif a.begins_with("--frames="):
 			_shot_frames = int(a.trim_prefix("--frames="))
