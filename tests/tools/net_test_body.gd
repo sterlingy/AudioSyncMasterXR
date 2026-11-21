@@ -11,6 +11,7 @@ var channel: Node
 var is_client := false
 var remote := false # two machines: --remote on the host, --join=IP on the client
 var join_ip := "127.0.0.1"
+var sweep := false # host: measure dropouts per buffer size and codec instead of the checks
 var failures := []
 
 
@@ -20,6 +21,8 @@ func _ready() -> void:
 	for a in args:
 		if a == "--remote":
 			remote = true
+		elif a == "--sweep":
+			sweep = true
 		elif a.begins_with("--join="):
 			join_ip = a.trim_prefix("--join=")
 			is_client = true
@@ -122,6 +125,13 @@ func _host() -> void:
 	var client_id: int = Session.players.keys().filter(func(k): return k != 1)[0]
 	var p: Dictionary = Session.players[client_id]
 	var rrig: InstrumentRig = p.rig
+	if sweep:
+		await _sweep(client_id)
+		channel.rpc("finish")
+		await wait(0.5)
+		Session.leave()
+		get_tree().quit(0)
+		return
 
 	var true_offset: float = r.epoch - clock_epoch() + SKEW
 	var err: float = absf(r.offset - true_offset)
@@ -245,6 +255,28 @@ func _host() -> void:
 	get_tree().quit(0 if failures.is_empty() else 1)
 
 
+## Streams a tone from the client for each receive buffer and codec, and
+## prints dropouts (AOO underruns) and the estimated audio delay.
+func _sweep(client_id: int) -> void:
+	var seconds := 8.0
+	print("  sweep: %.0f s of tone per setting; buffer = our receive buffer" % seconds)
+	for codec in ["pcm16", "opus"]:
+		channel.rpc_id(client_id, "report", {"cmd": "codec", "codec": codec})
+		await wait(1.0)
+		for buf in [5.0, 8.0, 10.0, 15.0, 20.0]:
+			Session.audio.set_latency_ms(buf)
+			channel.rpc_id(client_id, "report", {"cmd": "tone", "seconds": seconds + 1.0})
+			await wait(1.0) # stream (re)starts and settles
+			var u0 := int(Session.audio.get_peer_stats(client_id).get("underruns", 0))
+			await wait(seconds)
+			var st: Dictionary = Session.audio.get_peer_stats(client_id)
+			print("  sweep: %-5s buffer %4.0f ms: %2d dropouts in %.0f s, audio delay %.1f ms, ping %.1f ms" % [
+				codec, buf, int(st.get("underruns", 0)) - u0, seconds, st.get("audio_delay_ms", -1.0), st.get("rtt_ms", -1.0)])
+			await wait(1.0)
+	channel.rpc_id(client_id, "report", {"cmd": "codec", "codec": "pcm16"})
+	Session.audio.set_latency_ms(Session.audio_buffer_ms)
+
+
 # ---- Client
 
 func _client() -> void:
@@ -256,6 +288,8 @@ func _client() -> void:
 			_tone(float(d.get("seconds", 2.0)))
 		elif d.get("cmd") == "aloop":
 			_aloop()
+		elif d.get("cmd") == "codec":
+			Session.set_audio_codec(str(d.codec))
 		elif d.get("cmd") == "inst_audio":
 			_inst_audio()
 		elif d.get("cmd") == "state":
@@ -286,7 +320,7 @@ func _client() -> void:
 	channel.rpc_id(1, "report", {"epoch": clock_epoch(), "offset": Transport.clock_offset, "estimate": Session.clock.offset, "epoch2": clock_epoch(),
 		"bound": Session.clock.error_bound(), "rtt": Session.clock.rtt, "samples": Session.clock.samples.size(), "anchor_time": Transport.anchor_time, "running": Transport.running,
 		"param_id": info.id, "param_value": rig.synth.get_param(info.id), "master_layers": MasterLooper.layers.size()})
-	await wait(90.0 if remote else 15.0) # the host sends "finish" when done
+	await wait(300.0 if remote else 15.0) # the host sends "finish" when done
 	get_tree().quit(1)
 
 
