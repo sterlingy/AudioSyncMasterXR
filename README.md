@@ -7,9 +7,10 @@ Godot 4.7.2 (GL Compatibility). Synths run in C++ in the `jamcore` GDExtension.
 ## Status
 - **M1 synths: done** (Windows). Six instruments with full panels, 48 factory presets, user presets, share codes, MIDI input (USB, Android USB/BLE, Wi-Fi relay) with MIDI learn, on-screen keys and drum pads, Tangle patch editor.
 - **M2 clock, metronome, sequencers, quantize: done locally.** Network clock sync arrives with M4.
-- **M3 loopers: done** for virtual instruments (event loops); the master looper is shared in sessions. Audio loops for real instruments are still to do.
-- **M4 LAN sessions: done on Windows.** Host or join from the **Jam** tab (up to 6 players). Clock sync to within ~0.1 ms, tempo and transport follow the host, everyone's sound/sequencer/loops play in sync from the shared clock, live notes go player to player, and mic/instrument audio streams per player over AOO (PCM or Opus) with native WASAPI capture. Per-player volume, mute and latency display.
-- **Android:** arm64 engine builds; `build/android/AudioSyncMaster.apk` (flat, debug) exports with the MIDI plugin. Untested on a device.
+- **M3 loopers: done.** Note loops for virtual instruments and audio loops for mics/real instruments (Looper tab, "Records: Audio input"), cut at the bar lines you heard; the master looper is shared in sessions and takes both.
+- **M4 LAN sessions: done on Windows.** Host or join from the **Jam** tab (up to 6 players). Clock sync to within ~0.1 ms, tempo and transport follow the host, everyone's sound/sequencer/loops play in sync from the shared clock, live notes go player to player and are scheduled on the audio link's network thread (no frame delay), and mic/instrument audio streams per player over AOO (PCM or Opus) with native WASAPI capture (shared, or exclusive for ~3 ms input periods). Per-player volume, mute and latency display.
+- **M5 export: done.** **● Rec jam** records what you hear: `stem_<player>.wav` for each player, `mixdown.wav`, `jam.mid` (every note that played, a track per player, tempo map) and `session.json` with loop clips, under `user://jams/<date>/`. **Load session…** in the Jam tab loads it back. **Share…** shows a preset's code as a QR image and saves it as a PNG.
+- **Android:** arm64 engine builds with AOO; `build/android/AudioSyncMaster.apk` (flat, debug) exports with the MIDI plugin. Mic input uses Godot's microphone there. Untested on a device.
 - Headset steps wait in `docs/TODO-headset.md`.
 
 Keys: Space = play/stop, R = looper record/overdub.

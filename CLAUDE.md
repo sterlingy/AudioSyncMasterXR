@@ -28,13 +28,15 @@ This project is a multiplayer XR jam-session app built in Godot 4.7.2: remote mu
 - Tests: `tools/run_tests.ps1` (GUT) and the two-process session test `godot --headless --path . -s res://tests/tools/net_test.gd`.
 
 ## Current milestone
-M1 (synths, presets, panels, MIDI), M2 (clock, metronome, sequencers, quantize), M3 (loopers) done. M4 (LAN sessions) done on Windows: `Session` autoload (ENet state, P2P UDP live notes, threaded clock sync), `JamAudioLink` (AOO audio per player, WASAPI capture). M4 leftovers: live-note receive on a native thread, audio loops for real instruments, WASAPI exclusive mode; Android capture waits for the headset. Next: M5 jam export.
+M1-M5 done on Windows (synths; clock/sequencers/quantize; loopers incl. audio loops; LAN sessions with AOO audio, native-thread live notes, WASAPI shared/exclusive capture; jam recording to stems/mixdown/MIDI/session and preset QR codes). Android: arm64 build includes AOO, mic via Godot fallback, untested on a device. Next: M6 XR (needs the headset; see `docs/TODO-headset.md`), M7 3D instruments.
 
 ## Network model (read before touching `scripts/net/`)
 - Host = ENet server (port 47830 UDP), clock master, owner of tempo and the master looper. Clients' Transport is a `follower`: start/stop/tempo/meter become requests.
 - Sound, sequencer and finished loops are mirrored as snapshots and played from the shared clock on every client; only live notes travel in real time (30-byte UDP packets stamped with shared-clock time, adaptive jitter delay).
 - Clock pings use port 47831 and a receive thread (`ClockLink`); `Transport.clock_offset` = host clock minus ours.
-- Audio: one AOO source per player, one sink per remote player (sink id = sender's player id), on an ephemeral UDP port in `JamAudioLink`.
+- Audio: one AOO source per player, one sink per remote player (sink id = sender's player id), on an ephemeral UDP port in `JamAudioLink`. The same socket carries live notes; its network thread schedules them straight into the remote synth (`SynthCore::push_net`, a second SPSC queue).
+- Audio loops: `JamAudioLink` records all input into a 64 s timestamped ring; loopers cut bars from it (`get_input_audio`) and play clips on an internal `Clips` instrument. Clips go to peers once (zstd), never streamed.
+- Jam recording: `SynthCore` logs events as they're applied and taps output; `JamStemRecorder` writes stems/mixdown while recording; `JamRecorder` (GDScript) writes MIDI and `session.json`.
 
 ## Timing model (read before touching scheduling)
 - `JamSynth.get_time()` is a process-wide monotonic clock; every SynthCore locks its frame counter to it (DLL in `synth_core.h`), so `time_to_frame()` is consistent across all synths.
