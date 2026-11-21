@@ -15,3 +15,5 @@ addons/jamcore/bin/*.exp
 addons/jamcore/bin/*.pdb
 addons/jamcore/bin/*.ilk
 test_output/
+build_log.txt
+addons/jamcore/bin/
