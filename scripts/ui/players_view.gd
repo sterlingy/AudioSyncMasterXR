@@ -131,7 +131,7 @@ func _ready() -> void:
 	_list.add_theme_constant_override("separation", 6)
 	add_child(_list)
 	Session.players_changed.connect(_rebuild)
-	Session.status_changed.connect(func(_t): _refresh())
+	Session.status_changed.connect(_refresh.unbind(1))
 	_rebuild()
 
 
@@ -232,7 +232,7 @@ func _process(_d: float) -> void:
 	elif a and a.is_capturing():
 		_audio_info.text = "Sending: input period %.1f ms (%s), %s. Use headphones so others don't hear themselves back." % [a.get_capture_period_ms(), "exclusive" if a.is_capture_exclusive() else "shared", a.get_codec()]
 		if Session.input_exclusive and not a.is_capture_exclusive():
-			_audio_info.text += " The device refused exclusive mode.
+			_audio_info.text += " The device refused exclusive mode."
 	else:
 		_audio_info.text = "Not sending. Everyone else's audio still plays here."
 	for id in _rows:

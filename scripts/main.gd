@@ -13,6 +13,7 @@ var loop_view: LooperView
 var players_view: PlayersView
 var recorder: JamRecorder
 var _rec_jam: Button
+var _ext_conns: Array = [] # [signal, callable] on autoloads, undone when we leave
 var _tabs: TabBar
 var _play: Button
 var _pos: Label
@@ -27,6 +28,7 @@ var _add_module: MenuButton
 var _presets: Array[Dictionary] = []
 var _share_dialog: AcceptDialog
 var _share_text: TextEdit
+var _share_qr: TextureRect
 var _save_dialog: ConfirmationDialog
 var _save_name: LineEdit
 var _shot_path := ""
@@ -100,7 +102,7 @@ func _ready() -> void:
 	rig.instrument_changed.connect(func(_t): _on_instrument_changed())
 	rig.preset_changed.connect(func(_p): _sync_preset_select())
 	rig.learn_changed.connect(func(id): _update_status("Move a knob or slider on your MIDI controller to map it to %s" % id if id != "" else ""))
-	Midi.devices_changed.connect(func(_d): _update_status())
+	_link(Midi.devices_changed, func(_d): _update_status())
 	_on_instrument_changed()
 	_update_status()
 	_parse_dev_args()
@@ -150,9 +152,7 @@ func _build_top_bar() -> Control:
 	var share := Button.new()
 	share.text = "Share…"
 	share.tooltip_text = "Copy this sound as a code, or paste a code from someone else"
-	share.pressed.connect(func():
-		_share_text.text = PresetLibrary.to_code(PresetLibrary.capture(rig.synth, String(rig.current_preset.get("name", "Shared"))))
-		_share_dialog.popup_centered(Vector2i(620, 300)))
+	share.pressed.connect(_open_share)
 	bar.add_child(share)
 
 	_add_module = MenuButton.new()
@@ -199,7 +199,7 @@ func _build_transport_bar() -> Control:
 	_play.custom_minimum_size.x = 90
 	_play.tooltip_text = "Start/stop the shared clock (Space)"
 	_play.pressed.connect(func(): Transport.toggle())
-	Transport.state_changed.connect(func(r): _play.text = "■ Stop" if r else "▶ Play")
+	_link(Transport.state_changed, func(r): _play.text = "■ Stop" if r else "▶ Play")
 	bar.add_child(_play)
 	_rec_jam = Button.new()
 	_rec_jam.text = "● Rec jam"
@@ -221,7 +221,7 @@ func _build_transport_bar() -> Control:
 	_tempo.suffix = "BPM"
 	_tempo.custom_minimum_size.x = 120
 	_tempo.value_changed.connect(func(v): Transport.set_tempo(v))
-	Transport.tempo_changed.connect(func(b): _tempo.set_value_no_signal(b))
+	_link(Transport.tempo_changed, func(b): _tempo.set_value_no_signal(b))
 	bar.add_child(_tempo)
 	bar.add_child(_lbl("Beats/Bar"))
 	var bpb := SpinBox.new()
@@ -229,7 +229,7 @@ func _build_transport_bar() -> Control:
 	bpb.max_value = 16
 	bpb.value = Transport.beats_per_bar
 	bpb.value_changed.connect(func(v): Transport.set_beats_per_bar(int(v)))
-	Transport.meter_changed.connect(func(n): bpb.set_value_no_signal(n))
+	_link(Transport.meter_changed, func(n): bpb.set_value_no_signal(n))
 	bar.add_child(bpb)
 	var met := CheckButton.new()
 	met.text = "Metronome"
@@ -262,6 +262,24 @@ func _build_transport_bar() -> Control:
 	grid.item_selected.connect(apply)
 	live.toggled.connect(apply)
 	return bar
+
+
+## Connects to an autoload's signal and remembers it, so freeing this scene
+## (tests, scene changes) leaves no callbacks pointing at freed controls.
+func _link(sig: Signal, cb: Callable) -> void:
+	sig.connect(cb)
+	_ext_conns.append([sig, cb])
+
+
+func _exit_tree() -> void:
+	for c in _ext_conns:
+		if c[0].is_connected(c[1]):
+			c[0].disconnect(c[1])
+	_ext_conns.clear()
+	if recorder and recorder.recording:
+		recorder.stop()
+	if Session.local_rig == rig:
+		Session.local_rig = null
 
 
 func _toggle_jam_recording() -> void:
@@ -300,13 +318,20 @@ func _build_dialogs() -> void:
 	_share_dialog.title = "Share a sound"
 	var v := VBoxContainer.new()
 	var help := Label.new()
-	help.text = "Copy this code and send it to someone, or paste their code here and press Load."
+	help.text = "Copy this code and send it to someone, show them the QR code, or paste their code here and press Load."
 	help.autowrap_mode = TextServer.AUTOWRAP_WORD
 	v.add_child(help)
 	_share_text = TextEdit.new()
 	_share_text.custom_minimum_size = Vector2(580, 160)
 	_share_text.wrap_mode = TextEdit.LINE_WRAPPING_BOUNDARY
+	_share_text.text_changed.connect(_update_share_qr)
 	v.add_child(_share_text)
+	_share_qr = TextureRect.new()
+	_share_qr.custom_minimum_size = Vector2(280, 280)
+	_share_qr.expand_mode = TextureRect.EXPAND_IGNORE_SIZE
+	_share_qr.stretch_mode = TextureRect.STRETCH_KEEP_ASPECT_CENTERED
+	_share_qr.texture_filter = CanvasItem.TEXTURE_FILTER_NEAREST
+	v.add_child(_share_qr)
 	var row := HBoxContainer.new()
 	var copy := Button.new()
 	copy.text = "Copy"
@@ -314,12 +339,19 @@ func _build_dialogs() -> void:
 	row.add_child(copy)
 	var paste := Button.new()
 	paste.text = "Paste"
-	paste.pressed.connect(func(): _share_text.text = DisplayServer.clipboard_get())
+	paste.pressed.connect(func():
+		_share_text.text = DisplayServer.clipboard_get()
+		_update_share_qr())
 	row.add_child(paste)
 	var load := Button.new()
 	load.text = "Load"
 	load.pressed.connect(_load_shared)
 	row.add_child(load)
+	var save_qr := Button.new()
+	save_qr.text = "Save QR image"
+	save_qr.tooltip_text = "Save the QR code as a PNG (user://shared) to print or send"
+	save_qr.pressed.connect(_save_share_qr)
+	row.add_child(save_qr)
 	v.add_child(row)
 	_share_dialog.add_child(v)
 	add_child(_share_dialog)
@@ -341,6 +373,32 @@ func _build_dialogs() -> void:
 		_refresh_presets()
 		_update_status("Saved preset '%s'" % name))
 	add_child(_save_dialog)
+
+
+func _open_share() -> void:
+	_share_text.text = PresetLibrary.to_code(PresetLibrary.capture(rig.synth, String(rig.current_preset.get("name", "Shared"))))
+	_update_share_qr()
+	_share_dialog.popup_centered(Vector2i(620, 620))
+
+
+func _update_share_qr() -> void:
+	var code := _share_text.text.strip_edges()
+	var qr := QrCode.encode_text(code, QrCode.Ecc.L) if code.begins_with("JAM1:") else null
+	_share_qr.texture = ImageTexture.create_from_image(qr.to_image(4, 4)) if qr else null
+
+
+func _save_share_qr() -> void:
+	var code := _share_text.text.strip_edges()
+	var qr := QrCode.encode_text(code, QrCode.Ecc.L) if code.begins_with("JAM1:") else null
+	if qr == null:
+		_update_status("No share code to save.")
+		return
+	DirAccess.make_dir_recursive_absolute("user://shared")
+	var preset := PresetLibrary.from_code(code)
+	var name := str(preset.get("name", "sound")).validate_filename() if not preset.is_empty() else "sound"
+	var path := "user://shared/%s %s.png" % [str(preset.get("instrument", "")), name]
+	qr.to_image(8, 4).save_png(path)
+	_update_status("QR code saved to " + ProjectSettings.globalize_path(path))
 
 
 func _load_shared() -> void:
@@ -464,6 +522,8 @@ func _parse_dev_args() -> void:
 			_tabs.current_tab = 2
 		elif a == "--play":
 			Transport.start()
+		elif a == "--share":
+			_open_share.call_deferred()
 		elif a == "--jam":
 			_tabs.current_tab = 3
 		elif a == "--host":

@@ -23,10 +23,13 @@ var _flash := {} # note -> time remaining (drum pads)
 
 func _ready() -> void:
 	custom_minimum_size = Vector2(0, 120)
-	Midi.note_on.connect(func(n, _v):
-		_flash[n] = 0.15
-		queue_redraw())
-	Midi.note_off.connect(func(_n): queue_redraw())
+	Midi.note_on.connect(_on_note_on)
+	Midi.note_off.connect(queue_redraw.unbind(1))
+
+
+func _on_note_on(note: int, _velocity: int) -> void:
+	_flash[note] = 0.15
+	queue_redraw()
 
 
 func _process(delta: float) -> void:

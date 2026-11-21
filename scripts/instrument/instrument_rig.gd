@@ -64,18 +64,32 @@ func _ready() -> void:
 	looper = Looper.new(self)
 	played.connect(looper.capture)
 	Transport.register(self)
-	Transport.tempo_changed.connect(func(bpm): synth.tempo = bpm)
+	# Methods, not lambdas: Godot drops these connections when the rig is freed.
+	Transport.tempo_changed.connect(_on_tempo)
 	synth.tempo = Transport.bpm
 	set_instrument(instrument)
 	player.play()
 	if local_input:
-		Midi.note_on.connect(func(n, v): play_note(n, v / 127.0))
-		Midi.note_off.connect(func(n): release_note(n))
+		Midi.note_on.connect(_on_midi_note_on)
+		Midi.note_off.connect(release_note.bind(-1))
 		Midi.control_change.connect(_on_cc)
-		Midi.pitch_bend.connect(func(v): bend(v))
-		Midi.pressure.connect(func(v):
-			synth.control_change(128, v)
-			played.emit({"type": "cc", "cc": 128, "value": v}))
+		Midi.pitch_bend.connect(bend)
+		Midi.pressure.connect(_on_pressure)
+
+
+func _on_tempo(bpm: float) -> void:
+	synth.tempo = bpm
+	if _clips:
+		_clips.tempo = bpm
+
+
+func _on_midi_note_on(note: int, velocity: int) -> void:
+	play_note(note, velocity / 127.0)
+
+
+func _on_pressure(value: float) -> void:
+	synth.control_change(128, value)
+	played.emit({"type": "cc", "cc": 128, "value": value})
 
 
 func _exit_tree() -> void:
