@@ -26,4 +26,9 @@ This project is a multiplayer XR jam-session app built in Godot 4.7.2: remote mu
 - Extension: `scons -C jamcore platform=windows target=template_debug` from a VS 2022 developer environment (`tools/build.ps1` wraps it).
 
 ## Current milestone
-M1: synth engine and the six instruments (Pulsar, Undertow, Comet, Lumen, Tangle, Driftwood) with full parameters, presets and flat panels.
+M1 (synths, presets, panels, MIDI) done. M2 (shared clock, metronome, sequencers, quantize) done locally; network clock sync comes with M4. Next: M3 loopers.
+
+## Timing model (read before touching scheduling)
+- `JamSynth.get_time()` is a process-wide monotonic clock; every SynthCore locks its frame counter to it (DLL in `synth_core.h`), so `time_to_frame()` is consistent across all synths.
+- `Transport` (autoload) maps time <-> beats and pumps clients (metronome, sequencers, later loopers) with a lookahead; clients schedule notes with `Transport.frame_for(synth, beat)`, which already subtracts output latency.
+- Offline (tests, export): `synth.set_clock_anchor(t, 0)` then `render_offline()`.

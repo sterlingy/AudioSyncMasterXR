@@ -610,6 +610,13 @@ void TangleInstrument::control_change(int cc, float value) {
 	else if (cc == 2 || cc == 128) ctx.pressure = value; // 128 = channel pressure
 }
 
+void TangleInstrument::set_transport(double beat, bool running) {
+	// Lock the Clock/LFO/Delay modules to the session transport. The block in
+	// progress is already rendered, so account for the samples left in it.
+	(void)running;
+	ctx.beat = beat + (double)(TB - block_pos) * tempo / 60.0 / sr;
+}
+
 void TangleInstrument::custom_event(const Event &e) {
 	const int slot = e.b & 0xFF;
 	switch (e.a) {

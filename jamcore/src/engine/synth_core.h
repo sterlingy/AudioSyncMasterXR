@@ -10,6 +10,12 @@
 
 namespace jam {
 
+// Process-wide monotonic clock in seconds (shared by every core and the main thread).
+inline double mono_seconds() {
+	static const auto epoch = std::chrono::steady_clock::now();
+	return std::chrono::duration<double>(std::chrono::steady_clock::now() - epoch).count();
+}
+
 class SynthCore {
 public:
 	SynthCore() {}
@@ -58,8 +64,9 @@ public:
 
 	// ---- audio thread ----
 	// Renders n frames into l/r (overwrites).
-	void process(float *l, float *r, int n) {
+	void process(float *l, float *r, int n, bool realtime = true) {
 		auto t0 = std::chrono::steady_clock::now();
+		if (realtime) update_anchor(frame_pos.load(std::memory_order_relaxed));
 		for (int i = 0; i < n; i++) l[i] = r[i] = 0.0f;
 		drain();
 		const int64_t start = frame_pos.load(std::memory_order_relaxed);
@@ -103,6 +110,32 @@ public:
 		cpu_load.store(cpu_load.load(std::memory_order_relaxed) * 0.9f + load * 0.1f, std::memory_order_relaxed);
 	}
 
+	// Main thread: the engine frame that will be rendered at monotonic time t
+	// (seconds). -1 until the core has rendered in real time.
+	int64_t time_to_frame(double t) const {
+		double at;
+		int64_t af;
+		if (!read_anchor(at, af)) return -1;
+		return af + (int64_t)std::llround((t - at) * sample_rate);
+	}
+	// Offline rendering (tests, export): fix the frame<->time mapping by hand.
+	void set_anchor(double t, int64_t f) {
+		anchored = true;
+		anchor_time_rt = t;
+		anchor_frame_rt = f;
+		const uint32_t s = seq.load(std::memory_order_relaxed);
+		seq.store(s + 1, std::memory_order_release);
+		pub_time.store(t, std::memory_order_relaxed);
+		pub_frame.store(f, std::memory_order_relaxed);
+		seq.store(s + 2, std::memory_order_release);
+	}
+	double frame_to_time(int64_t f) const {
+		double at;
+		int64_t af;
+		if (!read_anchor(at, af)) return -1.0;
+		return at + (double)(f - af) / sample_rate;
+	}
+
 	static constexpr int MAX_BLOCK = 4096;
 	static constexpr int MAX_PENDING = 2048;
 	std::atomic<int64_t> frame_pos{ 0 };
@@ -114,6 +147,47 @@ public:
 	std::vector<float> temp_l, temp_r;
 
 private:
+	// A delay-locked loop: the time each block starts is predicted from the
+	// sample count and nudged toward the measured callback time, which removes
+	// callback jitter. Every core mixes in the same callback, so all converge
+	// on the same mapping.
+	void update_anchor(int64_t frame) {
+		const double now = mono_seconds();
+		double t;
+		if (!anchored) {
+			t = now;
+			anchored = true;
+		} else {
+			const double predicted = anchor_time_rt + (double)(frame - anchor_frame_rt) / sample_rate;
+			const double err = now - predicted;
+			t = (err > 0.05 || err < -0.05) ? now : predicted + err * 0.02;
+		}
+		anchor_time_rt = t;
+		anchor_frame_rt = frame;
+		const uint32_t s = seq.load(std::memory_order_relaxed);
+		seq.store(s + 1, std::memory_order_release);
+		pub_time.store(t, std::memory_order_relaxed);
+		pub_frame.store(frame, std::memory_order_relaxed);
+		seq.store(s + 2, std::memory_order_release);
+	}
+	bool read_anchor(double &t, int64_t &f) const {
+		for (int tries = 0; tries < 8; tries++) {
+			const uint32_t s1 = seq.load(std::memory_order_acquire);
+			if (s1 == 0) return false;
+			if (s1 & 1) continue;
+			t = pub_time.load(std::memory_order_relaxed);
+			f = pub_frame.load(std::memory_order_relaxed);
+			if (seq.load(std::memory_order_acquire) == s1) return true;
+		}
+		return false;
+	}
+	bool anchored = false;
+	double anchor_time_rt = 0.0;
+	int64_t anchor_frame_rt = 0;
+	std::atomic<uint32_t> seq{ 0 };
+	std::atomic<double> pub_time{ 0.0 };
+	std::atomic<int64_t> pub_frame{ 0 };
+
 	void drain() {
 		Event e;
 		while (queue.pop(e)) {
@@ -139,6 +213,7 @@ private:
 					case EV_BEND: inst->pitch_bend(e.value); break;
 					case EV_TEMPO: inst->set_tempo(e.value); break;
 					case EV_CUSTOM: inst->custom_event(e); break;
+					case EV_TRANSPORT: inst->set_transport((double)e.b + (double)e.value, e.a != 0); break;
 					default: break;
 				}
 		}

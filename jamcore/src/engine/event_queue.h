@@ -16,6 +16,7 @@ enum EventType : uint8_t {
 	EV_TEMPO,
 	EV_SWAP_INSTRUMENT, // ptr = new Instrument*
 	EV_CUSTOM, // instrument-specific (ptr / ints)
+	EV_TRANSPORT, // b = whole beats, value = fraction, a = running
 };
 
 struct Event {

@@ -104,6 +104,7 @@ public:
 	void all_notes_off() override;
 	void control_change(int cc, float value) override;
 	void custom_event(const Event &e) override;
+	void set_transport(double beat, bool running) override;
 	void render(float *l, float *r, int n) override;
 
 	SpscQueue<TangleGarbage, 256> garbage; // audio -> main

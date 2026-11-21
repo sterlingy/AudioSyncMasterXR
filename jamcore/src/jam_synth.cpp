@@ -250,9 +250,37 @@ void JamSynth::set_tempo(float bpm) {
 	send(jam::EV_TEMPO, 0, tempo, -1);
 }
 
+void JamSynth::sync_transport(double beat, int64_t frame, bool running) {
+	jam::Event e;
+	e.type = jam::EV_TRANSPORT;
+	const double whole = std::floor(beat);
+	e.b = (int32_t)whole;
+	e.value = (float)(beat - whole);
+	e.a = running ? 1 : 0;
+	e.frame = frame;
+	collect();
+	core->push(e);
+}
+
 void JamSynth::set_volume_db(float db) {
 	volume_db = db;
 	core->gain = jam::db_to_gain(db);
+}
+
+double JamSynth::get_time() {
+	return jam::mono_seconds();
+}
+
+int64_t JamSynth::time_to_frame(double t) const {
+	return core->time_to_frame(t);
+}
+
+double JamSynth::frame_to_time(int64_t frame) const {
+	return core->frame_to_time(frame);
+}
+
+void JamSynth::set_clock_anchor(double time, int64_t frame) {
+	core->set_anchor(time, frame);
 }
 
 int64_t JamSynth::get_frame_position() const {
@@ -292,7 +320,7 @@ PackedVector2Array JamSynth::render_offline(int frames, float sample_rate) {
 	int done = 0;
 	while (done < frames) {
 		const int n = std::min<int>(frames - done, 256);
-		core->process(l, r, n);
+		core->process(l, r, n, false);
 		for (int i = 0; i < n; i++) out.set(done + i, Vector2(l[i], r[i]));
 		done += n;
 	}
@@ -493,9 +521,14 @@ void JamSynth::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("pitch_bend", "value", "frame"), &JamSynth::pitch_bend, DEFVAL(-1));
 	ClassDB::bind_method(D_METHOD("set_tempo", "bpm"), &JamSynth::set_tempo);
 	ClassDB::bind_method(D_METHOD("get_tempo"), &JamSynth::get_tempo);
+	ClassDB::bind_method(D_METHOD("sync_transport", "beat", "frame", "running"), &JamSynth::sync_transport, DEFVAL(true));
 	ClassDB::bind_method(D_METHOD("set_volume_db", "db"), &JamSynth::set_volume_db);
 	ClassDB::bind_method(D_METHOD("get_volume_db"), &JamSynth::get_volume_db);
 	ClassDB::bind_method(D_METHOD("get_frame_position"), &JamSynth::get_frame_position);
+	ClassDB::bind_static_method("JamSynth", D_METHOD("get_time"), &JamSynth::get_time);
+	ClassDB::bind_method(D_METHOD("time_to_frame", "time"), &JamSynth::time_to_frame);
+	ClassDB::bind_method(D_METHOD("frame_to_time", "frame"), &JamSynth::frame_to_time);
+	ClassDB::bind_method(D_METHOD("set_clock_anchor", "time", "frame"), &JamSynth::set_clock_anchor);
 	ClassDB::bind_method(D_METHOD("get_sample_rate"), &JamSynth::get_sample_rate);
 	ClassDB::bind_method(D_METHOD("take_peak"), &JamSynth::take_peak);
 	ClassDB::bind_method(D_METHOD("get_cpu_load"), &JamSynth::get_cpu_load);
@@ -515,7 +548,7 @@ void JamSynth::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("tangle_clear"), &JamSynth::tangle_clear);
 	ClassDB::bind_method(D_METHOD("tangle_load_default"), &JamSynth::tangle_load_default);
 
-	ADD_PROPERTY(PropertyInfo(Variant::STRING, "instrument", PROPERTY_HINT_ENUM, "Undertow,Comet,Lumen,Pulsar,Driftwood,Tangle"), "set_instrument", "get_instrument");
+	ADD_PROPERTY(PropertyInfo(Variant::STRING, "instrument", PROPERTY_HINT_ENUM, "Undertow,Comet,Lumen,Pulsar,Driftwood,Tangle,Metronome"), "set_instrument", "get_instrument");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "volume_db", PROPERTY_HINT_RANGE, "-60,12,0.1,suffix:dB"), "set_volume_db", "get_volume_db");
 	ADD_PROPERTY(PropertyInfo(Variant::FLOAT, "tempo", PROPERTY_HINT_RANGE, "20,400,0.1,suffix:BPM"), "set_tempo", "get_tempo");
 }

@@ -76,6 +76,8 @@ public:
 	}
 	virtual void set_sustain(bool on) { sustain_pedal = on; }
 	virtual void set_tempo(float bpm) { tempo = bpm; }
+	// The transport's beat position at the moment this is applied (sample-accurate).
+	virtual void set_transport(double beat, bool running) {}
 	virtual void param_changed(int index) {}
 	// Instrument-specific commands (Tangle patch edits). Audio thread.
 	virtual void custom_event(const Event &e) {}

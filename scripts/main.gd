@@ -8,6 +8,10 @@ var rig: InstrumentRig
 var panel: SynthPanel
 var tangle: TangleEditor
 var keys: KeyboardView
+var seq_view: SequencerView
+var _tabs: TabBar
+var _play: Button
+var _pos: Label
 
 var _inst_select: OptionButton
 var _preset_select: OptionButton
@@ -47,6 +51,12 @@ func _ready() -> void:
 	margin.add_child(root)
 
 	root.add_child(_build_top_bar())
+	root.add_child(_build_transport_bar())
+	_tabs = TabBar.new()
+	_tabs.add_tab("Sound")
+	_tabs.add_tab("Sequencer")
+	_tabs.tab_changed.connect(func(_i): _show_body())
+	root.add_child(_tabs)
 	var body := Control.new()
 	body.size_flags_vertical = Control.SIZE_EXPAND_FILL
 	root.add_child(body)
@@ -57,6 +67,9 @@ func _ready() -> void:
 	tangle = TangleEditor.new()
 	tangle.set_anchors_preset(Control.PRESET_FULL_RECT)
 	body.add_child(tangle)
+	seq_view = SequencerView.new()
+	seq_view.set_anchors_preset(Control.PRESET_FULL_RECT)
+	body.add_child(seq_view)
 
 	keys = KeyboardView.new()
 	keys.custom_minimum_size.y = 130
@@ -87,7 +100,8 @@ func _build_top_bar() -> Control:
 
 	_inst_select = OptionButton.new()
 	for t in JamSynth.get_instrument_types():
-		_inst_select.add_item(t)
+		if t != "Metronome":
+			_inst_select.add_item(t)
 	_inst_select.item_selected.connect(func(i):
 		var t := _inst_select.get_item_text(i)
 		Settings.set_value("instrument", t)
@@ -134,19 +148,6 @@ func _build_top_bar() -> Control:
 	spacer.size_flags_horizontal = Control.SIZE_EXPAND_FILL
 	bar.add_child(spacer)
 
-	var tl := Label.new()
-	tl.text = "Tempo"
-	bar.add_child(tl)
-	_tempo = SpinBox.new()
-	_tempo.min_value = 40
-	_tempo.max_value = 240
-	_tempo.step = 1
-	_tempo.value = 120
-	_tempo.suffix = "BPM"
-	_tempo.custom_minimum_size.x = 120
-	_tempo.value_changed.connect(func(v): rig.synth.tempo = v)
-	bar.add_child(_tempo)
-
 	var vl := Label.new()
 	vl.text = "Volume"
 	bar.add_child(vl)
@@ -171,6 +172,88 @@ func _build_top_bar() -> Control:
 	_cpu.add_theme_font_size_override("font_size", 11)
 	bar.add_child(_cpu)
 	return bar
+
+
+func _build_transport_bar() -> Control:
+	var bar := HBoxContainer.new()
+	bar.add_theme_constant_override("separation", 8)
+	_play = Button.new()
+	_play.text = "▶ Play"
+	_play.custom_minimum_size.x = 90
+	_play.tooltip_text = "Start/stop the shared clock (Space)"
+	_play.pressed.connect(func(): Transport.toggle())
+	Transport.state_changed.connect(func(r): _play.text = "■ Stop" if r else "▶ Play")
+	bar.add_child(_play)
+	_pos = Label.new()
+	_pos.custom_minimum_size.x = 60
+	_pos.text = "1.1"
+	_pos.add_theme_font_size_override("font_size", 18)
+	bar.add_child(_pos)
+	bar.add_child(_lbl("Tempo"))
+	_tempo = SpinBox.new()
+	_tempo.min_value = 30
+	_tempo.max_value = 300
+	_tempo.step = 1
+	_tempo.value = Transport.bpm
+	_tempo.suffix = "BPM"
+	_tempo.custom_minimum_size.x = 120
+	_tempo.value_changed.connect(func(v): Transport.set_tempo(v))
+	Transport.tempo_changed.connect(func(b): _tempo.set_value_no_signal(b))
+	bar.add_child(_tempo)
+	bar.add_child(_lbl("Beats/Bar"))
+	var bpb := SpinBox.new()
+	bpb.min_value = 1
+	bpb.max_value = 16
+	bpb.value = Transport.beats_per_bar
+	bpb.value_changed.connect(func(v): Transport.set_beats_per_bar(int(v)))
+	bar.add_child(bpb)
+	var met := CheckButton.new()
+	met.text = "Metronome"
+	met.button_pressed = Transport.metronome_on
+	met.toggled.connect(func(t): Transport.metronome_on = t)
+	bar.add_child(met)
+	var ci := CheckButton.new()
+	ci.text = "Count-in"
+	ci.button_pressed = Transport.count_in_bars > 0
+	ci.toggled.connect(func(t): Transport.count_in_bars = 1 if t else 0)
+	bar.add_child(ci)
+	bar.add_child(VSeparator.new())
+	var q := CheckButton.new()
+	q.text = "Quantize"
+	q.tooltip_text = "Snap what gets recorded to the grid"
+	q.button_pressed = Transport.quantize_enabled
+	bar.add_child(q)
+	var grid := OptionButton.new()
+	for g in Transport.GRIDS:
+		grid.add_item(g[0])
+	grid.select(4)
+	bar.add_child(grid)
+	var live := CheckButton.new()
+	live.text = "Live Quantize"
+	live.tooltip_text = "Also snap what you play live (delays notes to the next grid point)"
+	bar.add_child(live)
+	var apply := func(_x = null):
+		Transport.set_quantize(q.button_pressed, Transport.GRIDS[grid.selected][1], live.button_pressed)
+	q.toggled.connect(apply)
+	grid.item_selected.connect(apply)
+	live.toggled.connect(apply)
+	return bar
+
+
+func _lbl(t: String) -> Label:
+	var l := Label.new()
+	l.text = t
+	return l
+
+
+func _show_body() -> void:
+	var is_tangle := rig.instrument == "Tangle"
+	var sound := _tabs.current_tab == 0
+	panel.visible = sound and not is_tangle
+	tangle.visible = sound and is_tangle
+	seq_view.visible = not sound
+	if not sound:
+		seq_view.bind(rig.sequencer, rig.color(), rig.instrument == "Pulsar")
 
 
 func _build_dialogs() -> void:
@@ -240,8 +323,6 @@ func _on_instrument_changed() -> void:
 		if _inst_select.get_item_text(i) == t:
 			_inst_select.select(i)
 	var is_tangle := t == "Tangle"
-	panel.visible = not is_tangle
-	tangle.visible = is_tangle
 	_add_module.visible = is_tangle
 	if is_tangle:
 		if tangle.rig == null:
@@ -258,6 +339,7 @@ func _on_instrument_changed() -> void:
 			i += 1
 	else:
 		panel.rebuild()
+	_show_body()
 	keys.accent = rig.color()
 	keys.drum_mode = t == "Pulsar"
 	keys.queue_redraw()
@@ -297,6 +379,7 @@ func _process(_delta: float) -> void:
 	var pk := rig.synth.take_peak()
 	_meter.value = maxf(_meter.value * 0.85, maxf(pk.x, pk.y))
 	_cpu.text = "DSP %.1f%%" % (rig.synth.get_cpu_load() * 100.0)
+	_pos.text = Transport.position_text() if Transport.running else "1.1"
 	if _shot_path != "":
 		_shot_frames -= 1
 		if _shot_frames <= 0:
@@ -308,6 +391,10 @@ func _process(_delta: float) -> void:
 
 
 func _unhandled_key_input(event: InputEvent) -> void:
+	if event is InputEventKey and event.pressed and not event.echo and event.physical_keycode == KEY_SPACE:
+		Transport.toggle()
+		get_viewport().set_input_as_handled()
+		return
 	# Octave/velocity changes show up in the status line.
 	if event is InputEventKey and event.pressed:
 		_update_status()
@@ -319,5 +406,9 @@ func _parse_dev_args() -> void:
 			_shot_path = a.trim_prefix("--shot=")
 		elif a.begins_with("--instrument="):
 			rig.set_instrument(a.trim_prefix("--instrument="))
+		elif a == "--seq":
+			_tabs.current_tab = 1
+		elif a == "--play":
+			Transport.start()
 		elif a.begins_with("--frames="):
 			_shot_frames = int(a.trim_prefix("--frames="))

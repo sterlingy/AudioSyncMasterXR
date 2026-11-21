@@ -17,6 +17,7 @@ driver/mix_rate=48000
 
 Settings="*res://scripts/autoload/settings.gd"
 Midi="*res://scripts/autoload/midi_input.gd"
+Transport="*res://scripts/autoload/transport.gd"
 
 [display]
 

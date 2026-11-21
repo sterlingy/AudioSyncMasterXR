@@ -32,6 +32,10 @@ const MAP_PATH := "user://midi_map.cfg"
 
 var synth := JamSynth.new()
 var player: Node
+var sequencer: StepSequencer
+var _patterns := {} # instrument type -> sequencer dict (each instrument keeps its own pattern)
+var _seq_loaded := false
+var _live_shift := {} # note -> frames a live-quantized note was delayed by
 var current_preset: Dictionary = {}
 var learning := ""
 
@@ -50,6 +54,10 @@ func _ready() -> void:
 		p.stream = synth
 		player = p
 	add_child(player)
+	sequencer = StepSequencer.new(self)
+	Transport.register(self)
+	Transport.tempo_changed.connect(func(bpm): synth.tempo = bpm)
+	synth.tempo = Transport.bpm
 	set_instrument(instrument)
 	player.play()
 	if local_input:
@@ -65,8 +73,18 @@ func set_instrument(type: String) -> void:
 	if not is_inside_tree():
 		return
 	synth.all_notes_off()
+	if sequencer:
+		sequencer.transport_stopped()
+		if _seq_loaded:
+			_patterns[synth.instrument] = sequencer.to_dict()
+		_seq_loaded = true
+		if _patterns.has(type):
+			sequencer.from_dict(_patterns[type])
+		else:
+			sequencer.from_dict(DefaultPatterns.for_instrument(type))
 	# JamSynth swaps instruments while playing; no need to restart the player.
 	synth.instrument = type
+	synth.tempo = Transport.bpm
 	instrument_changed.emit(type)
 	var presets := PresetLibrary.list(type)
 	if presets.size() > 0:
@@ -83,14 +101,43 @@ func color() -> Color:
 	return COLORS.get(instrument, Color.WHITE)
 
 
+## The beat the player is hearing right now (what they play along to).
+func heard_beat() -> float:
+	return Transport.beat_at(Transport.now() - AudioServer.get_output_latency())
+
+
 func play_note(note: int, velocity: float, frame := -1) -> void:
+	var beat := heard_beat()
+	if frame < 0 and Transport.running and Transport.live_quantize and beat >= 0.0:
+		var target := Transport.next_grid(beat)
+		frame = Transport.frame_for(synth, target)
+		_live_shift[note] = frame - synth.get_frame_position()
+		beat = target
 	synth.note_on(note, velocity, frame)
-	played.emit({"type": "on", "note": note, "velocity": velocity})
+	if Transport.running:
+		sequencer.record_note(note, velocity, beat)
+	played.emit({"type": "on", "note": note, "velocity": velocity, "beat": beat})
 
 
 func release_note(note: int, frame := -1) -> void:
+	if frame < 0 and _live_shift.has(note):
+		# Keep the note's length when its start was delayed to the grid.
+		frame = synth.get_frame_position() + int(_live_shift[note])
+	_live_shift.erase(note)
 	synth.note_off(note, frame)
-	played.emit({"type": "off", "note": note})
+	played.emit({"type": "off", "note": note, "beat": heard_beat()})
+
+
+# ---- Transport client
+
+func schedule(from_beat: float, to_beat: float) -> void:
+	# Keep Tangle's clock modules locked to the session (cheap: one event per frame).
+	synth.sync_transport(from_beat, Transport.frame_for(synth, from_beat))
+	sequencer.schedule(from_beat, to_beat)
+
+
+func transport_stopped() -> void:
+	sequencer.transport_stopped()
 
 
 func bend(value: float) -> void:

@@ -84,6 +84,7 @@ public:
 	void control_change(int cc, float value, int64_t frame = -1);
 	void pitch_bend(float value, int64_t frame = -1);
 	void set_tempo(float bpm);
+	void sync_transport(double beat, int64_t frame, bool running = true);
 	float get_tempo() const { return tempo; }
 
 	void set_volume_db(float db);
@@ -91,6 +92,11 @@ public:
 
 	// Monitoring
 	int64_t get_frame_position() const;
+	// Shared clock: monotonic seconds, and the mapping to this synth's frames.
+	static double get_time();
+	int64_t time_to_frame(double t) const; // -1 until playing in real time
+	double frame_to_time(int64_t frame) const;
+	void set_clock_anchor(double time, int64_t frame); // offline rendering only
 	float get_sample_rate() const;
 	Vector2 take_peak(); // peak since the last call (for meters)
 	float get_cpu_load() const; // render time / real time, smoothed
