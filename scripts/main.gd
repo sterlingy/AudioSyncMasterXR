@@ -11,6 +11,8 @@ var keys: KeyboardView
 var seq_view: SequencerView
 var loop_view: LooperView
 var players_view: PlayersView
+var recorder: JamRecorder
+var _rec_jam: Button
 var _tabs: TabBar
 var _play: Button
 var _pos: Label
@@ -43,6 +45,9 @@ func _ready() -> void:
 	rig.instrument = String(Settings.get_value("instrument"))
 	add_child(rig)
 	Session.bind_rig(rig)
+	recorder = JamRecorder.new()
+	recorder.name = "JamRecorder"
+	add_child(recorder)
 
 	var root := VBoxContainer.new()
 	root.set_anchors_preset(Control.PRESET_FULL_RECT)
@@ -196,6 +201,12 @@ func _build_transport_bar() -> Control:
 	_play.pressed.connect(func(): Transport.toggle())
 	Transport.state_changed.connect(func(r): _play.text = "■ Stop" if r else "▶ Play")
 	bar.add_child(_play)
+	_rec_jam = Button.new()
+	_rec_jam.text = "● Rec jam"
+	_rec_jam.tooltip_text = "Record the jam as heard here: a WAV stem per player, a mixdown, MIDI of every note, and a session file (saved under user://jams)"
+	_rec_jam.disabled = not JamRecorder.supported()
+	_rec_jam.pressed.connect(_toggle_jam_recording)
+	bar.add_child(_rec_jam)
 	_pos = Label.new()
 	_pos.custom_minimum_size.x = 60
 	_pos.text = "1.1"
@@ -251,6 +262,17 @@ func _build_transport_bar() -> Control:
 	grid.item_selected.connect(apply)
 	live.toggled.connect(apply)
 	return bar
+
+
+func _toggle_jam_recording() -> void:
+	if recorder.recording:
+		var d := recorder.stop()
+		_rec_jam.text = "● Rec jam"
+		_update_status("Jam saved to %s (stems, mixdown.wav, jam.mid, session.json)" % ProjectSettings.globalize_path(d))
+	elif recorder.start() == OK:
+		_rec_jam.text = "■ Stop rec 0:00"
+	else:
+		_update_status("Couldn't start recording the jam.")
 
 
 func _lbl(t: String) -> Label:
@@ -397,6 +419,9 @@ func _process(_delta: float) -> void:
 	_meter.value = maxf(_meter.value * 0.85, maxf(pk.x, pk.y))
 	_cpu.text = "DSP %.1f%%" % (rig.synth.get_cpu_load() * 100.0)
 	_pos.text = Transport.position_text() if Transport.running else "1.1"
+	if recorder.recording:
+		var secs := int(recorder.length())
+		_rec_jam.text = "■ Stop rec %d:%02d" % [secs / 60, secs % 60]
 	if _shot_path != "":
 		_shot_frames -= 1
 		_shot_after -= _delta

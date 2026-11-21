@@ -31,8 +31,7 @@ if os.path.exists(os.path.join(aoo_dir, "install", "include", "aoo")):
     } if env.get("is_msvc", False) else {
         "aoo": os.path.join(aoo_dir, "aoo"),
         "opus": os.path.join(aoo_dir, "deps", "opus"),
-        "aoo_oscpack": os.path.join(aoo_dir, "deps", "oscpack"),
-    }
+    }  # oscpack is inside libaoo here
     env.Append(LIBPATH=list(libs.values()), LIBS=list(libs.keys()))
     if env["platform"] == "windows":
         env.Append(LIBS=["ws2_32", "ole32", "avrt", "advapi32"])

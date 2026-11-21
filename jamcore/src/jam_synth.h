@@ -83,6 +83,11 @@ public:
 	void clip_clear(int slot);
 	void clip_play(int slot, float gain, int64_t frame, int offset);
 
+	// Jam recording: log what plays (notes, controllers, params) and tap the output.
+	void set_recording(bool on);
+	// [t, type, a, value] per event: type 0 = note on, 1 = off, 2 = all off, 3 = param, 4 = cc, 5 = bend.
+	PackedFloat64Array take_events();
+
 	// Playing. frame = absolute engine frame (see get_frame_position); -1 = now.
 	void note_on(int note, float velocity = 1.0f, int64_t frame = -1);
 	void note_off(int note, int64_t frame = -1);

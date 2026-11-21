@@ -11,6 +11,11 @@ try {
     if (-not (Test-Path extension_api.json)) { & $godot --headless --dump-extension-api | Out-Null }
     $args = @("platform=$Platform", "target=template_$Target", "-j$env:NUMBER_OF_PROCESSORS")
     if ($Platform -eq "android" -and $Arch -eq "") { $Arch = "arm64" }
+    if ($Platform -eq "android") {
+        # Use the newest NDK installed (godot-cpp otherwise asks for its own pinned version).
+        $ndk = Get-ChildItem (Join-Path $env:ANDROID_HOME "ndk") -Name | Sort-Object { [version]$_ } | Select-Object -Last 1
+        $args += "ndk_version=$ndk"
+    }
     if ($Arch -ne "") { $args += "arch=$Arch" }
     python -m SCons @args
 } finally { Pop-Location }

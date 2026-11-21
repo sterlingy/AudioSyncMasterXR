@@ -67,6 +67,8 @@ var audio_codec := "pcm16"
 var input_exclusive := false # WASAPI exclusive: ~3 ms instead of ~10 ms, but locks the device
 var audio_error := ""
 var _udp := PacketPeerUDP.new()
+var _mic: AudioStreamPlayer # Godot microphone fallback where there's no native capture (Android for now)
+var _mic_capture: AudioEffectCapture
 var _link: ClockLink
 var _host_ip := ""
 var _sent_hash := {}
@@ -762,6 +764,10 @@ func _flush() -> void:
 
 
 func _process(delta: float) -> void:
+	if _mic_capture and audio:
+		var n := _mic_capture.get_frames_available()
+		if n > 0:
+			audio.push_input(_mic_capture.get_buffer(n), int(AudioServer.get_mix_rate()))
 	if not is_online():
 		return
 	_poll_udp()
@@ -886,15 +892,56 @@ func _apply_audio_input() -> void:
 		if audio:
 			audio.set_sending(false)
 			audio.stop_capture()
+		_stop_godot_mic()
 		return
 	if not _ensure_audio():
 		return
 	audio_error = ""
-	if audio.has_native_capture() and not audio.is_capturing():
-		if audio.start_capture(input_device, input_channel, input_exclusive) != OK:
+	if audio.has_native_capture():
+		if not audio.is_capturing() and audio.start_capture(input_device, input_channel, input_exclusive) != OK:
 			audio_error = "Input didn't start: " + audio.get_capture_error()
 			return
+	elif not _start_godot_mic():
+		return
 	audio.set_sending(is_online())
+
+
+## Fallback input: Godot's microphone on a silent bus with a capture effect,
+## pushed into the audio link every frame (adds up to a frame of latency).
+func _start_godot_mic() -> bool:
+	if _mic:
+		return true
+	if not ProjectSettings.get_setting("audio/driver/enable_input", false):
+		audio_error = "Audio input is disabled on this platform (audio/driver/enable_input)."
+		return false
+	if OS.get_name() == "Android" and not "android.permission.RECORD_AUDIO" in OS.get_granted_permissions():
+		OS.request_permissions()
+		audio_error = "Allow microphone access, then turn audio input on again."
+		return false
+	var bus := AudioServer.bus_count
+	AudioServer.add_bus(bus)
+	AudioServer.set_bus_name(bus, "JamMicIn")
+	_mic_capture = AudioEffectCapture.new()
+	_mic_capture.buffer_length = 0.5
+	AudioServer.add_bus_effect(bus, _mic_capture)
+	AudioServer.set_bus_mute(bus, true) # captured, never heard (direct monitoring)
+	_mic = AudioStreamPlayer.new()
+	_mic.stream = AudioStreamMicrophone.new()
+	_mic.bus = "JamMicIn"
+	add_child(_mic)
+	_mic.play()
+	return true
+
+
+func _stop_godot_mic() -> void:
+	if _mic == null:
+		return
+	_mic.queue_free()
+	_mic = null
+	var bus := AudioServer.get_bus_index("JamMicIn")
+	if bus >= 0:
+		AudioServer.remove_bus(bus)
+	_mic_capture = null
 
 
 func clock_text() -> String:

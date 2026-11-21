@@ -57,6 +57,11 @@ struct JamPeerAudio {
 	std::atomic<double> note_rtt{-1.0};
 	std::atomic<int> notes{0};
 	std::atomic<bool> direct_in{false}, direct_out{false};
+
+	// Jam recording of this voice (created once, kept for the peer's lifetime).
+	jam::OutputTap *tap = nullptr;
+	std::atomic<bool> tap_on{false};
+	~JamPeerAudio() { delete tap; }
 };
 
 class JamNetStreamPlayback : public AudioStreamPlayback {
@@ -144,6 +149,8 @@ class JamAudioLink : public RefCounted {
 	std::atomic<double> rec_pub_t{0.0};
 	std::atomic<int64_t> rec_pub_f{0};
 	std::atomic<double> input_offset{0.0};
+	jam::OutputTap *input_tap = nullptr;
+	std::atomic<bool> input_tap_on{false};
 	double capture_latency = 0.0;
 	static AooInt32 AOO_CALL send_fn(void *user, const AooByte *data, AooInt32 size, const void *address, AooAddrSize addrlen, AooFlag flags);
 	static void AOO_CALL source_event(void *user, const AooEvent *e, AooThreadLevel level);
@@ -180,6 +187,9 @@ public:
 	Dictionary get_input_audio(double t0, double t1);
 	double get_input_time() const; // local time of the newest recorded sample (-1 if none)
 	void set_input_offset_ms(float ms) { input_offset = ms / 1000.0; }
+	// C++ (jam recorder): taps for our input and a peer's voice; null if unknown.
+	jam::OutputTap *record_input(bool on);
+	std::shared_ptr<JamPeerAudio> record_peer(int peer_id, bool on);
 	float get_input_offset_ms() const { return (float)(input_offset.load() * 1000.0); }
 
 	void set_sending(bool on);

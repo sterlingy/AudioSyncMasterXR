@@ -49,6 +49,9 @@ func _ready() -> void:
 	row.add_child(_join)
 	_leave = _button("Leave", func(): Session.leave())
 	row.add_child(_leave)
+	var load := _button("Load session…", _open_load)
+	load.tooltip_text = "Load a saved jam (session.json): tempo, your sound, sequencer and loops, and the master looper"
+	row.add_child(load)
 	_status = Label.new()
 	_status.add_theme_color_override("font_color", Color(1, 1, 1, 0.75))
 	_status.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
@@ -130,6 +133,23 @@ func _ready() -> void:
 	Session.players_changed.connect(_rebuild)
 	Session.status_changed.connect(func(_t): _refresh())
 	_rebuild()
+
+
+func _open_load() -> void:
+	var fd := FileDialog.new()
+	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
+	fd.access = FileDialog.ACCESS_FILESYSTEM
+	fd.filters = PackedStringArray(["session.json ; AudioSyncMaster session"])
+	DirAccess.make_dir_recursive_absolute("user://jams")
+	fd.current_dir = ProjectSettings.globalize_path("user://jams")
+	fd.size = Vector2i(900, 600)
+	fd.file_selected.connect(func(path):
+		var err := JamRecorder.load_session(path)
+		_status.text = err if err != "" else "Loaded " + path
+		fd.queue_free())
+	fd.canceled.connect(fd.queue_free)
+	add_child(fd)
+	fd.popup_centered()
 
 
 func _input_changed() -> void:

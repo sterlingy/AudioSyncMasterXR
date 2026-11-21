@@ -3,8 +3,10 @@
 #pragma once
 #include "event_queue.h"
 #include "instrument.h"
+#include "output_tap.h"
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <memory>
 #include <vector>
 
@@ -16,10 +18,21 @@ inline double mono_seconds() {
 	return std::chrono::duration<double>(std::chrono::steady_clock::now() - epoch).count();
 }
 
+// What actually played, for jam export (MIDI): written on the audio thread
+// at the moment each event is applied, with its exact time.
+struct LogEntry {
+	double t = 0.0;
+	uint8_t type = 0; // EventType
+	int32_t a = 0;
+	float value = 0.0f;
+};
+
 class SynthCore {
 public:
 	SynthCore() {}
 	~SynthCore() {
+		delete log;
+		delete tap;
 		Instrument *g;
 		while (garbage.pop(g)) delete g;
 		delete inst;
@@ -65,11 +78,28 @@ public:
 	}
 	void set_tempo_main(float bpm) { tempo = bpm; }
 
+	// Jam recording (main thread). The log and tap are created once and kept
+	// until the core dies, so the audio thread never sees them freed.
+	void set_recording(bool on) {
+		if (on) {
+			if (!log) log = new SpscQueue<LogEntry, 16384>();
+			if (!tap) tap = new OutputTap();
+			LogEntry le;
+			while (log->pop(le)) {}
+			TapBlock tb;
+			while (tap->read(tb)) {}
+		}
+		recording.store(on, std::memory_order_release);
+	}
+	bool take_log(LogEntry &out) { return log && log->pop(out); }
+	OutputTap *get_tap() const { return tap; }
+
 	// ---- audio thread ----
 	// Renders n frames into l/r (overwrites).
 	void process(float *l, float *r, int n, bool realtime = true) {
 		auto t0 = std::chrono::steady_clock::now();
 		if (realtime) update_anchor(frame_pos.load(std::memory_order_relaxed));
+		const bool rec = realtime && recording.load(std::memory_order_acquire);
 		for (int i = 0; i < n; i++) l[i] = r[i] = 0.0f;
 		drain();
 		const int64_t start = frame_pos.load(std::memory_order_relaxed);
@@ -82,6 +112,7 @@ public:
 			for (int i = 0; i < npending; i++) {
 				Event &e = pending[i];
 				if (e.frame < 0 || e.frame <= now) {
+					if (rec) log_event(e, now);
 					apply(e);
 				} else {
 					const int64_t rel = e.frame - start;
@@ -104,6 +135,7 @@ public:
 			if (al > pk_l) pk_l = al;
 			if (ar > pk_r) pk_r = ar;
 		}
+		if (rec) tap->write(l, r, n, anchor_time_rt, (int)sample_rate);
 		frame_pos.store(start + n, std::memory_order_relaxed);
 		peak_l.store(std::max(pk_l, peak_l.load(std::memory_order_relaxed)), std::memory_order_relaxed);
 		peak_r.store(std::max(pk_r, peak_r.load(std::memory_order_relaxed)), std::memory_order_relaxed);
@@ -184,6 +216,29 @@ private:
 		}
 		return false;
 	}
+	void log_event(const Event &e, int64_t frame) {
+		switch (e.type) {
+			case EV_NOTE_ON:
+			case EV_NOTE_OFF:
+			case EV_ALL_OFF:
+			case EV_PARAM:
+			case EV_CC:
+			case EV_BEND: {
+				LogEntry le;
+				le.t = anchor_time_rt + (double)(frame - anchor_frame_rt) / sample_rate;
+				le.type = (uint8_t)e.type;
+				le.a = e.a;
+				le.value = e.value;
+				log->push(le);
+			} break;
+			default:
+				break;
+		}
+	}
+	std::atomic<bool> recording{false};
+	SpscQueue<LogEntry, 16384> *log = nullptr;
+	OutputTap *tap = nullptr;
+
 	bool anchored = false;
 	double anchor_time_rt = 0.0;
 	int64_t anchor_frame_rt = 0;

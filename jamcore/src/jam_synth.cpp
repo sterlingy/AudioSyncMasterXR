@@ -158,6 +158,20 @@ bool JamSynth::clip_set(int slot, const PackedFloat32Array &samples, float sampl
 	return true;
 }
 
+void JamSynth::set_recording(bool on) { core->set_recording(on); }
+
+PackedFloat64Array JamSynth::take_events() {
+	PackedFloat64Array out;
+	jam::LogEntry le;
+	while (core->take_log(le)) {
+		out.push_back(le.t);
+		out.push_back(le.type);
+		out.push_back(le.a);
+		out.push_back(le.value);
+	}
+	return out;
+}
+
 void JamSynth::clip_clear(int slot) {
 	if (instrument_type != "Clips" || !main_inst) return;
 	static_cast<jam::ClipPlayer *>(main_inst)->collect();
@@ -595,6 +609,8 @@ void JamSynth::_bind_methods() {
 	ClassDB::bind_method(D_METHOD("render_offline", "frames", "sample_rate"), &JamSynth::render_offline, DEFVAL(48000.0f));
 	ClassDB::bind_method(D_METHOD("clip_set", "slot", "samples", "sample_rate"), &JamSynth::clip_set);
 	ClassDB::bind_method(D_METHOD("clip_clear", "slot"), &JamSynth::clip_clear);
+	ClassDB::bind_method(D_METHOD("set_recording", "on"), &JamSynth::set_recording);
+	ClassDB::bind_method(D_METHOD("take_events"), &JamSynth::take_events);
 	ClassDB::bind_method(D_METHOD("clip_play", "slot", "gain", "frame", "offset"), &JamSynth::clip_play, DEFVAL(1.0f), DEFVAL(-1), DEFVAL(0));
 
 	ClassDB::bind_method(D_METHOD("tangle_get_module_types"), &JamSynth::tangle_get_module_types);

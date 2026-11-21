@@ -15,6 +15,7 @@ using namespace godot;
 
 namespace {
 constexpr int MAX_BLOCK = 4096;
+double mix_rate_for_tap = 48000.0; // set when a link starts (AudioServer mix rate)
 constexpr uint32_t NOTE_MAGIC = 0x314E5341; // "ASN1", as in session.gd
 constexpr int NOTE_PKT = 30;
 constexpr double MAX_NOTE_DELAY = 0.08;
@@ -71,6 +72,16 @@ int32_t JamNetStreamPlayback::_mix(AudioFrame *p_buffer, float, int32_t p_frames
 		done += n;
 	}
 	if (pk > peer->peak.load(std::memory_order_relaxed)) peer->peak.store(pk, std::memory_order_relaxed);
+	if (peer->tap_on.load(std::memory_order_acquire)) {
+		// The voice as heard here, stamped with when it was mixed.
+		const double t = jam::mono_seconds();
+		float tmp[jam::TapBlock::FRAMES];
+		for (int done = 0; done < p_frames; done += jam::TapBlock::FRAMES) {
+			const int n = std::min<int>(p_frames - done, jam::TapBlock::FRAMES);
+			for (int i = 0; i < n; i++) tmp[i] = p_buffer[done + i].left;
+			peer->tap->write(tmp, nullptr, n, t + (double)done / mix_rate_for_tap, (int)mix_rate_for_tap);
+		}
+	}
 	return p_frames;
 }
 
@@ -85,7 +96,10 @@ Ref<AudioStreamPlayback> JamNetStream::_instantiate_playback() const {
 
 JamAudioLink::JamAudioLink() { aoo_init_once(); }
 
-JamAudioLink::~JamAudioLink() { stop(); }
+JamAudioLink::~JamAudioLink() {
+	stop();
+	delete input_tap;
+}
 
 Error JamAudioLink::start(int port, int p_my_id) {
 	stop();
@@ -94,6 +108,7 @@ Error JamAudioLink::start(int port, int p_my_id) {
 		return ERR_CANT_OPEN;
 	}
 	my_id = p_my_id;
+	mix_rate_for_tap = AudioServer::get_singleton()->get_mix_rate();
 	source = AooSource::create(my_id);
 	if (!source) return ERR_CANT_CREATE;
 	source->setEventHandler(&JamAudioLink::source_event, this, kAooEventModePoll);
@@ -448,6 +463,16 @@ void JamAudioLink::feed(const float *mono, int frames, int sample_rate, double l
 		rec_pub_f.store(end, std::memory_order_relaxed);
 		rec_seq.store(s + 2, std::memory_order_release);
 		rec_total.store(end, std::memory_order_release);
+		if (input_tap_on.load(std::memory_order_acquire)) {
+			// Stamped with when it was played (the recorder's line), not when it arrived.
+			const double t0 = t - (double)frames / sample_rate;
+			float tmp[jam::TapBlock::FRAMES];
+			for (int done = 0; done < frames; done += jam::TapBlock::FRAMES) {
+				const int k = std::min(frames - done, jam::TapBlock::FRAMES);
+				for (int i = 0; i < k; i++) tmp[i] = mono[done + i] * g0;
+				input_tap->write(tmp, nullptr, k, t0 + (double)done / sample_rate, sample_rate);
+			}
+		}
 	}
 	static thread_local std::vector<float> scratch(MAX_BLOCK);
 	const float g = input_gain.load(std::memory_order_relaxed);
@@ -536,6 +561,30 @@ Dictionary JamAudioLink::get_input_audio(double t0, double t1) {
 	d["samples"] = out;
 	d["complete"] = ok && f0 >= std::max<int64_t>(0, total - size) && f0 + n <= total;
 	return d;
+}
+
+jam::OutputTap *JamAudioLink::record_input(bool on) {
+	if (on && !input_tap) input_tap = new jam::OutputTap();
+	if (on) {
+		jam::TapBlock b;
+		while (input_tap->read(b)) {}
+	}
+	input_tap_on = on;
+	return input_tap;
+}
+
+std::shared_ptr<JamPeerAudio> JamAudioLink::record_peer(int peer_id, bool on) {
+	std::lock_guard<std::mutex> lock(peers_mutex);
+	auto it = peers.find(peer_id);
+	if (it == peers.end()) return nullptr;
+	auto p = it->second;
+	if (on && !p->tap) p->tap = new jam::OutputTap();
+	if (on) {
+		jam::TapBlock b;
+		while (p->tap->read(b)) {}
+	}
+	p->tap_on = on;
+	return p;
 }
 
 double JamAudioLink::get_input_time() const {

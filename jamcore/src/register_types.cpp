@@ -1,4 +1,5 @@
 #include "jam_synth.h"
+#include "record/jam_stem_recorder.h"
 #ifdef JAM_HAVE_AOO
 #include "net/jam_audio_link.h"
 #endif
@@ -13,6 +14,7 @@ void initialize_jamcore(ModuleInitializationLevel p_level) {
 	if (p_level != MODULE_INITIALIZATION_LEVEL_SCENE) return;
 	GDREGISTER_CLASS(JamSynthPlayback);
 	GDREGISTER_CLASS(JamSynth);
+	GDREGISTER_CLASS(JamStemRecorder);
 #ifdef JAM_HAVE_AOO
 	GDREGISTER_CLASS(JamNetStreamPlayback);
 	GDREGISTER_CLASS(JamNetStream);

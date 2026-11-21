@@ -297,12 +297,12 @@ done:
 
 bool AudioCapture::supported() { return false; }
 std::vector<std::string> AudioCapture::list_devices() { return {}; }
-bool AudioCapture::start(int, int, CaptureCallback) {
+bool AudioCapture::start(int, int, CaptureCallback, bool) {
 	err = "native capture isn't available on this platform yet";
 	return false;
 }
 void AudioCapture::stop() {}
-void AudioCapture::run(int, int) {}
+void AudioCapture::run(int, int, bool) {}
 
 #endif
 

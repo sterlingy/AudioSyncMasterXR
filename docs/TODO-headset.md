@@ -12,8 +12,8 @@ is skipped because no headset is available.
 5. **Wi-Fi MIDI relay**: laptop sends (`net_send`), headset receives (on by default on Android). Ports 47820/47821 UDP.
 
 ## Networking on the headset (M4 leftovers)
-6. **Build AOO for Android** (`tools/build_aoo.ps1 -Platform android`, then `tools/build.ps1 -Platform android`) so `JamAudioLink` is in the APK; until then the Android build joins sessions with notes only.
-7. **Mic capture on Android**: native AAudio/Oboe input feeding `JamAudioLink` (Windows uses WASAPI); fallback: Godot's microphone + `AudioEffectCapture` -> `JamAudioLink.push_input()`. Needs the record-audio permission prompt on device.
+6. **Audio link on Android**: AOO is built into the arm64 library (`tools/build_aoo.ps1 -Platform android`, then `tools/build.ps1 -Platform android`). Check that joining a session from the headset streams audio both ways.
+7. **Mic on Android**: uses Godot's microphone (`AudioStreamMicrophone` on a muted bus + `AudioEffectCapture` -> `JamAudioLink.push_input`, `audio/driver/enable_input.android=true`). Untested on a device: check the permission prompt, then latency; if it's poor, add native AAudio/Oboe input to `jamcore/src/net/audio_capture.cpp`.
 8. **Wi-Fi latency**: join a session from the headset to a wired PC; read ping, note delay and audio dropouts in the Jam tab. Try audio buffer 10-30 ms and Opus vs PCM.
 
 ## XR milestone (M6), needs the headset to verify
