@@ -8,7 +8,7 @@ is skipped because no headset is available.
 1. **Install the flat Android build** (`build/android/AudioSyncMaster.apk`, `adb install -r`), play each instrument from the on-screen keys, and read the **DSP %** in the top bar for every instrument with a full chord held. The Windows debug build uses 0.4–1.6 % of one core; the Aura's puck should stay under ~10 %.
 2. **Measure Godot's audio output latency on Android** (`AudioServer.get_output_latency()` and a loopback/click test). If it's well above ~20 ms, start the native AAudio/Oboe output path (DESIGN.md, "Engine integration").
 3. **USB MIDI on the puck**: plug in a keyboard (direct cable/OTG, not through a charger hub). The ChordMasterMidi Android plugin should list it automatically.
-4. **Bluetooth LE MIDI**: pair a BLE MIDI keyboard, then trigger `Midi.scan_bluetooth()` (needs a settings screen button). Accept the Bluetooth permission prompt.
+4. **Bluetooth LE MIDI**: pair a BLE MIDI keyboard, then press **MIDI… → Scan for Bluetooth MIDI**. Accept the Bluetooth permission prompt.
 5. **Wi-Fi MIDI relay**: laptop sends (`net_send`), headset receives (on by default on Android). Ports 47820/47821 UDP.
 
 ## Networking on the headset (M4 leftovers)

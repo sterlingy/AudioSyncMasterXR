@@ -29,6 +29,7 @@ var _suggest_text: Label
 var _add_module: MenuButton
 var _presets: Array[Dictionary] = []
 var _share_dialog: AcceptDialog
+var _midi_dialog: MidiSettings
 var _share_text: TextEdit
 var _share_qr: TextureRect
 var _save_dialog: ConfirmationDialog
@@ -157,6 +158,11 @@ func _build_top_bar() -> Control:
 	share.tooltip_text = "Copy this sound as a code, or paste a code from someone else"
 	share.pressed.connect(_open_share)
 	bar.add_child(share)
+	var midi := Button.new()
+	midi.text = "MIDI…"
+	midi.tooltip_text = "MIDI devices, Bluetooth MIDI, input channel, Wi-Fi MIDI relay"
+	midi.pressed.connect(func(): _midi_dialog.popup_centered(Vector2i(620, 560)))
+	bar.add_child(midi)
 
 	_add_module = MenuButton.new()
 	_add_module.text = "+ Module"
@@ -369,6 +375,8 @@ func _show_body() -> void:
 
 
 func _build_dialogs() -> void:
+	_midi_dialog = MidiSettings.new()
+	add_child(_midi_dialog)
 	_share_dialog = AcceptDialog.new()
 	_share_dialog.title = "Share a sound"
 	var v := VBoxContainer.new()
@@ -577,6 +585,8 @@ func _parse_dev_args() -> void:
 			_tabs.current_tab = 2
 		elif a == "--play":
 			Transport.start()
+		elif a == "--midi":
+			_midi_dialog.popup_centered.call_deferred(Vector2i(620, 560))
 		elif a == "--share":
 			_open_share.call_deferred()
 		elif a == "--jam":
