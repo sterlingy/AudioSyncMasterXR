@@ -1,0 +1,214 @@
+class_name HandPlayer
+extends Node
+## Play the 3D instrument with your fingertips. The playable parts come from
+## the model's own named meshes (keys *_W<i> / *_B<i>, Pulsar pads, Driftwood
+## bars and tines), so they always match what you see. A fingertip pushed down
+## through a part's top plays it (faster = louder) and lifting releases it.
+## Notes go through Midi.inject_*, like the on-screen keys, so looping,
+## recording and the session work unchanged.
+##
+## Tips come from the OpenXR hand trackers (all ten fingertips); tests feed
+## them with update_tips().
+
+const WHITE := [0, 2, 4, 5, 7, 9, 11]
+const BLACK_AFTER := {0: 1, 1: 3, 3: 6, 4: 8, 5: 10} # white index in octave -> semitone of the black key after it
+const BASE_NOTE := {"Undertow": 36, "Comet": 60, "Lumen": 48, "Tangle": 48}
+const PADS := {"00": 36, "10": 38, "20": 39, "30": 42, "01": 46, "11": 45, "21": 50, "31": 49}
+const BARS := [60, 62, 64, 65, 67, 69, 71, 72, 74] # Driftwood, low on the left
+const TINES := [84, 79, 76, 72, 74, 77, 81] # kalimba: lowest in the middle
+const TIP_RADIUS := 0.006 # the finger pad sits this far below the tracked tip
+const PRESS_DEPTH := 0.004 # how far through the top before it plays
+const RELEASE_ABOVE := 0.003
+const MAX_FROM_BELOW := 0.04 # a tip further under the top than this doesn't press (hand resting on the body)
+const SINK := 0.004 # pressed parts move down this much
+const FULL_SPEED := 0.8 # m/s downward for full velocity
+
+var model: Node3D
+var origin: XROrigin3D # hand joints are relative to it
+var instrument := ""
+var octave_shift := 0 # in octaves, for the keyboards
+var zones: Array = [] # {note, min: Vector3, max: Vector3, node, rest: Vector3}, model-local, highest first
+var _tips := {} # tip id -> {pos: Vector3 (model-local), zone: int, t}
+var _strip: Node3D # Tangle's key strip
+
+
+## Builds the playable zones for `m` (an InstrumentModels instance) of `type`.
+func setup(m: Node3D, type: String) -> void:
+	release_all()
+	model = m
+	instrument = type
+	zones.clear()
+	if _strip:
+		_strip.queue_free()
+		_strip = null
+	if model == null:
+		return
+	if type == "Tangle":
+		_strip = _build_strip()
+		model.add_child(_strip)
+	var inv := model.global_transform.affine_inverse() if model.is_inside_tree() else Transform3D.IDENTITY
+	for mi in model.find_children("*", "MeshInstance3D", true, false):
+		var note := _note_for(String(mi.name), type)
+		if note < 0:
+			continue
+		var xf: Transform3D = (inv * mi.global_transform) if model.is_inside_tree() else _local_xf(mi)
+		var box: AABB = xf * (mi as MeshInstance3D).get_aabb()
+		zones.append({"note": note, "min": box.position, "max": box.end, "node": mi, "rest": mi.position})
+	zones.sort_custom(func(a, b): return a.max.y > b.max.y) # black keys before the white keys under them
+
+
+func _local_xf(n: Node3D) -> Transform3D:
+	var xf := Transform3D.IDENTITY
+	var cur: Node = n
+	while cur and cur != model:
+		if cur is Node3D:
+			xf = (cur as Node3D).transform * xf
+		cur = cur.get_parent()
+	return xf
+
+
+func _note_for(name: String, type: String) -> int:
+	var parts := name.split("_")
+	if parts.size() < 2:
+		return -1
+	var part := parts[1]
+	if type in BASE_NOTE:
+		var base: int = BASE_NOTE[type] + 12 * octave_shift
+		if part.begins_with("W") and part.substr(1).is_valid_int():
+			var i := int(part.substr(1))
+			return base + 12 * (i / 7) + WHITE[i % 7]
+		if part.begins_with("B") and part.substr(1).is_valid_int():
+			var i := int(part.substr(1))
+			if BLACK_AFTER.has(i % 7):
+				return base + 12 * (i / 7) + BLACK_AFTER[i % 7]
+	if type == "Pulsar" and part.begins_with("Pad"):
+		return PADS.get(part.substr(3), -1)
+	if type == "Driftwood":
+		if part.begins_with("Bar") and part.substr(3).is_valid_int():
+			var i := int(part.substr(3))
+			return BARS[i] if i < BARS.size() else -1
+		if part.begins_with("Tine") and part.substr(4).is_valid_int():
+			var i := int(part.substr(4))
+			return TINES[i] if i < TINES.size() else -1
+	return -1
+
+
+## Tangle has no keys of its own: two octaves in front of its case.
+func _build_strip() -> Node3D:
+	var strip := Node3D.new()
+	strip.name = "Tangle_KeyStrip"
+	var ivory := StandardMaterial3D.new()
+	ivory.albedo_color = Color(0.88, 0.87, 0.84)
+	var ebony := StandardMaterial3D.new()
+	ebony.albedo_color = Color(0.03, 0.03, 0.035)
+	var ww := 0.022
+	var x0 := -ww * 7.5
+	for i in 15:
+		var k := MeshInstance3D.new()
+		k.name = "Tangle_W%d" % i
+		var bm := BoxMesh.new()
+		bm.size = Vector3(ww * 0.94, 0.016, 0.11)
+		k.mesh = bm
+		k.material_override = ivory
+		k.position = Vector3(x0 + (i + 0.5) * ww, 0.008, 0.17)
+		strip.add_child(k)
+	for o in 2:
+		for kk in [0, 1, 3, 4, 5]:
+			var i: int = o * 7 + kk
+			var b := MeshInstance3D.new()
+			b.name = "Tangle_B%d" % i
+			var bm := BoxMesh.new()
+			bm.size = Vector3(ww * 0.55, 0.014, 0.068)
+			b.mesh = bm
+			b.material_override = ebony
+			b.position = Vector3(x0 + (i + 1) * ww, 0.023, 0.15)
+			strip.add_child(b)
+	return strip
+
+
+func release_all() -> void:
+	for id in _tips:
+		_lift(_tips[id])
+	_tips.clear()
+
+
+func _process(_delta: float) -> void:
+	if model == null or not model.is_inside_tree():
+		return
+	var tips := {}
+	for hand in [XRPositionalTracker.TRACKER_HAND_LEFT, XRPositionalTracker.TRACKER_HAND_RIGHT]:
+		var tr := XRServer.get_tracker("/user/hand_tracker/left" if hand == XRPositionalTracker.TRACKER_HAND_LEFT else "/user/hand_tracker/right") as XRHandTracker
+		if tr == null or not tr.has_tracking_data:
+			continue
+		for j in [XRHandTracker.HAND_JOINT_THUMB_TIP, XRHandTracker.HAND_JOINT_INDEX_FINGER_TIP, XRHandTracker.HAND_JOINT_MIDDLE_FINGER_TIP,
+				XRHandTracker.HAND_JOINT_RING_FINGER_TIP, XRHandTracker.HAND_JOINT_PINKY_FINGER_TIP]:
+			if tr.get_hand_joint_flags(j) & XRHandTracker.HAND_JOINT_FLAG_POSITION_TRACKED:
+				tips["%d_%d" % [hand, j]] = _world_tip(tr.get_hand_joint_transform(j).origin)
+	update_tips(tips, Time.get_ticks_msec() / 1000.0)
+
+
+## Hand joints are in the play space, relative to the XROrigin3D.
+func _world_tip(p: Vector3) -> Vector3:
+	return origin.global_transform * p if origin else p
+
+
+## tips: id -> world position. Plays and releases zones as tips cross their tops.
+func update_tips(tips: Dictionary, t: float) -> void:
+	var inv := model.global_transform.affine_inverse()
+	for id in _tips.keys():
+		if not tips.has(id):
+			_lift(_tips[id])
+			_tips.erase(id)
+	for id in tips:
+		var p: Vector3 = inv * (tips[id] as Vector3)
+		p.y -= TIP_RADIUS
+		var st: Dictionary = _tips.get(id, {"pos": p, "zone": -1, "t": t})
+		var dt := maxf(t - float(st.t), 1e-3)
+		var speed := (float(st.pos.y) - p.y) / dt # downward speed
+		if st.zone >= 0:
+			var z: Dictionary = zones[st.zone]
+			var inside: bool = p.x > z.min.x - 0.004 and p.x < z.max.x + 0.004 and p.z > z.min.z - 0.004 and p.z < z.max.z + 0.004
+			if p.y > z.max.y + RELEASE_ABOVE or not inside:
+				_lift(st)
+		if st.zone < 0:
+			for i in zones.size():
+				var z: Dictionary = zones[i]
+				if p.x < z.min.x or p.x > z.max.x or p.z < z.min.z or p.z > z.max.z:
+					continue
+				var top: float = z.max.y
+				# Pressed: crossed the top going down (not a hand resting below it).
+				if p.y < top - PRESS_DEPTH and p.y > top - MAX_FROM_BELOW and float(st.pos.y) >= top - PRESS_DEPTH:
+					if _held_by_other(i, id):
+						break
+					st.zone = i
+					var vel := int(clampf(speed / FULL_SPEED, 0.25, 1.0) * 127.0)
+					Midi.inject_note_on(z.note, vel)
+					if is_instance_valid(z.node):
+						(z.node as Node3D).position = z.rest - Vector3(0, SINK, 0)
+				break # the highest zone under the tip decides
+		st.pos = p
+		st.t = t
+		_tips[id] = st
+
+
+func _held_by_other(zone: int, id: String) -> bool:
+	for other in _tips:
+		if other != id and _tips[other].zone == zone:
+			return true
+	return false
+
+
+func _lift(st: Dictionary) -> void:
+	if st.zone < 0 or st.zone >= zones.size():
+		st.zone = -1
+		return
+	var z: Dictionary = zones[st.zone]
+	Midi.inject_note_off(z.note)
+	if is_instance_valid(z.node):
+		(z.node as Node3D).position = z.rest
+	st.zone = -1
+
+
+## Number of zones (for tests and the status line).
+func zone_count() -> int:
+	return zones.size()

@@ -23,6 +23,7 @@ var panel: Node3D
 var app: Control # the flat app (main.tscn) inside the panel
 var table: Node3D
 var workspace: Node3D # panel + table, moved as one by recenter()
+var hand_player: HandPlayer
 var _t_fps := 5.0
 var _model: Node3D
 var _avatars := {} # player id -> {seat, avatar, model}
@@ -122,6 +123,10 @@ func _build_panel() -> void:
 
 
 func _build_table() -> void:
+	hand_player = HandPlayer.new()
+	hand_player.name = "HandPlayer"
+	hand_player.origin = player
+	add_child(hand_player)
 	table = Node3D.new()
 	table.name = "Table"
 	table.position = TABLE_POS
@@ -166,6 +171,7 @@ func _show_instrument(type: String) -> void:
 	_model = InstrumentModels.instantiate(type)
 	if _model:
 		table.add_child(_model)
+	hand_player.setup(_model, type)
 
 
 ## Fingertip pokes on both hands (touch the panel) and a laser on each hand
