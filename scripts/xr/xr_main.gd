@@ -57,6 +57,12 @@ func _ready() -> void:
 	if app and app.has_method("add_top_button"):
 		app.add_top_button("Recenter", "Move the panel and your instrument in front of you", recenter)
 	_add_hand_tools.call_deferred()
+	var wrist := WristButton.new()
+	wrist.name = "WristReset"
+	wrist.origin = player
+	wrist.camera = player.get_node_or_null("Camera")
+	wrist.pressed.connect(reset_position)
+	add_child(wrist)
 	Session.players_changed.connect(_sync_avatars)
 	for a in OS.get_cmdline_user_args():
 		if a.begins_with("--xrshot="):
@@ -126,6 +132,7 @@ func _build_table() -> void:
 	hand_player = HandPlayer.new()
 	hand_player.name = "HandPlayer"
 	hand_player.origin = player
+	hand_player.rig = Session.local_rig
 	add_child(hand_player)
 	table = Node3D.new()
 	table.name = "Table"
@@ -182,6 +189,11 @@ func _add_hand_tools() -> void:
 		var ctl := player.get_node_or_null(side) as XRController3D
 		if ctl == null:
 			continue
+		# No teleporting: you play seated or standing in place.
+		var teleport := ctl.get_node_or_null("FunctionTeleport")
+		if teleport:
+			teleport.set("enabled", false)
+			teleport.queue_free()
 		var pointer: Node3D = load("res://addons/godot-xr-tools/functions/function_pointer.tscn").instantiate()
 		pointer.name = "FunctionPointer"
 		pointer.set("show_laser", 2) # only while pointing at something
@@ -208,6 +220,13 @@ func _index_tip(ctl: Node) -> Node3D:
 				skel.add_child(att)
 				return att
 	return null
+
+
+## The wrist button: the instrument back on its spot below the panel, and both
+## in front of where you're looking.
+func reset_position() -> void:
+	table.transform = Transform3D(Basis.IDENTITY, TABLE_POS)
+	recenter()
 
 
 ## Puts the panel and table in front of where you're looking, at your head height.

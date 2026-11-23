@@ -22,6 +22,21 @@ const RELEASE_ABOVE := 0.003
 const MAX_FROM_BELOW := 0.04 # a tip further under the top than this doesn't press (hand resting on the body)
 const SINK := 0.004 # pressed parts move down this much
 const FULL_SPEED := 0.8 # m/s downward for full velocity
+# Knobs on the models: pinch one (thumb + index) and move your hand up/down.
+const KNOB_PARAMS := {
+	"Undertow": ["filter.cutoff", "filter.emphasis", "filter.contour", "fenv.attack", "fenv.decay", "fenv.sustain",
+		"mix.osc1", "mix.osc2", "mix.osc3", "mix.noise", "lenv.attack", "lenv.decay",
+		"ctrl.tune", "ctrl.glide", "osc2.freq", "osc3.freq", "lenv.sustain", "out.volume"],
+	"Comet": ["filter.cutoff", "filter.resonance", "filter.env", "aenv.release", "vibrato.depth", "delay.mix", "out.volume"],
+	"Lumen": ["filter.cutoff", "filter.resonance", "filter.env", "aenv.attack", "aenv.release", "lfo.rate",
+		"chorus.mix", "reverb.size", "reverb.mix", "out.volume"],
+	"Pulsar": ["kick.tune", "kick.decay", "snare.tone", "snare.snap", "chat.decay", "ohat.decay", "master.drive", "master.volume"],
+}
+const PINCH_ON := 0.022 # thumb-index distance that starts a pinch
+const PINCH_OFF := 0.035
+const KNOB_REACH := 0.045 # how close the pinch must be to a knob's centre
+const KNOB_TRAVEL := 0.12 # hand movement (m) for the full range
+const KNOB_SWEEP := 270.0 # degrees from minimum to maximum
 
 var model: Node3D
 var origin: XROrigin3D # hand joints are relative to it
@@ -30,6 +45,12 @@ var octave_shift := 0 # in octaves, for the keyboards
 var zones: Array = [] # {note, min: Vector3, max: Vector3, node, rest: Vector3}, model-local, highest first
 var _tips := {} # tip id -> {pos: Vector3 (model-local), zone: int, t}
 var _strip: Node3D # Tangle's key strip
+var rig: InstrumentRig # whose parameters the knobs set (the local player's)
+var knobs: Array = [] # {node, id, name, unit, min, max, log, center (model-local), rest: Basis}
+var _held_knob := {} # hand side -> {knob, y0, t0}
+var _pinching := {} # hand side -> bool
+var _label: Label3D
+var _t_sync := 0.0
 
 
 ## Builds the playable zones for `m` (an InstrumentModels instance) of `type`.
@@ -55,6 +76,115 @@ func setup(m: Node3D, type: String) -> void:
 		var box: AABB = xf * (mi as MeshInstance3D).get_aabb()
 		zones.append({"note": note, "min": box.position, "max": box.end, "node": mi, "rest": mi.position})
 	zones.sort_custom(func(a, b): return a.max.y > b.max.y) # black keys before the white keys under them
+	_build_knobs()
+
+
+func _build_knobs() -> void:
+	knobs.clear()
+	_held_knob.clear()
+	var ids: Array = KNOB_PARAMS.get(instrument, [])
+	if ids.is_empty() or rig == null:
+		return
+	var params := {}
+	for p in rig.synth.get_param_list():
+		params[p.id] = p
+	var meshes := {}
+	for mi in model.find_children("*", "MeshInstance3D", true, false):
+		meshes[String(mi.name)] = mi
+	var names := []
+	for n in meshes:
+		var part: PackedStringArray = n.split("_")
+		if part.size() == 2 and ((part[1].begins_with("K") and part[1].substr(1).is_valid_int()) or part[1].begins_with("Knob")):
+			names.append(n)
+	names.sort() # Undertow_K00..K25 row by row; Comet_K0..; Pulsar_Knob0..
+	for i in mini(names.size(), ids.size()):
+		var info: Dictionary = params.get(ids[i], {})
+		if info.is_empty():
+			continue
+		var node: MeshInstance3D = meshes[names[i]]
+		var dot: Node3D = meshes.get(names[i] + "_dot")
+		if dot:
+			dot.reparent(node, true) # the marker turns with its knob
+		var c: Vector3 = model.global_transform.affine_inverse() * node.global_position
+		knobs.append({"node": node, "id": ids[i], "name": str(info.name), "unit": str(info.unit), "min": float(info.min),
+			"max": float(info.max), "log": bool(info.log), "center": c, "rest": node.basis})
+	_sync_knobs()
+	if _label == null:
+		_label = Label3D.new()
+		_label.pixel_size = 0.0006
+		_label.font_size = 40
+		_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
+		_label.no_depth_test = true
+		_label.visible = false
+	if _label.get_parent():
+		_label.get_parent().remove_child(_label)
+	model.add_child(_label)
+
+
+func _to_t(k: Dictionary, v: float) -> float:
+	if k.log and k.min > 0.0:
+		return clampf(log(v / k.min) / log(k.max / k.min), 0.0, 1.0)
+	return clampf((v - k.min) / (k.max - k.min), 0.0, 1.0)
+
+
+func _from_t(k: Dictionary, t: float) -> float:
+	if k.log and k.min > 0.0:
+		return k.min * pow(k.max / k.min, t)
+	return lerpf(k.min, k.max, t)
+
+
+func _show_knob(k: Dictionary, t: float) -> void:
+	if is_instance_valid(k.node):
+		(k.node as Node3D).basis = (k.rest as Basis) * Basis(Vector3.UP, deg_to_rad(-(t - 0.5) * KNOB_SWEEP))
+
+
+## Knobs follow the sound (presets, panel, MIDI controllers).
+func _sync_knobs() -> void:
+	if rig == null:
+		return
+	for k in knobs:
+		_show_knob(k, _to_t(k, rig.synth.get_param(k.id)))
+
+
+## pinches: hand side -> world position of the pinch (thumb/index midpoint), for
+## hands that are pinching now. Grabs, turns and lets go of knobs.
+func update_pinches(pinches: Dictionary) -> void:
+	if model == null or rig == null:
+		return
+	var inv := model.global_transform.affine_inverse()
+	for side in _held_knob.keys():
+		if not pinches.has(side):
+			_held_knob.erase(side)
+	for side in pinches:
+		var p: Vector3 = inv * (pinches[side] as Vector3)
+		if _held_knob.has(side):
+			var h: Dictionary = _held_knob[side]
+			var k: Dictionary = h.knob
+			var t := clampf(float(h.t0) + (p.y - float(h.y0)) / KNOB_TRAVEL, 0.0, 1.0)
+			var v := _from_t(k, t)
+			rig.set_param(k.id, v)
+			_show_knob(k, t)
+			_label.text = "%s  %s" % [k.name, _fmt(v, k.unit)]
+			_label.position = k.center + Vector3(0, 0.06, 0)
+			_label.visible = true
+			continue
+		var best := -1
+		var best_d := KNOB_REACH
+		for i in knobs.size():
+			var d: float = p.distance_to(knobs[i].center)
+			if d < best_d:
+				best_d = d
+				best = i
+		if best >= 0:
+			var k: Dictionary = knobs[best]
+			_held_knob[side] = {"knob": k, "y0": p.y, "t0": _to_t(k, rig.synth.get_param(k.id))}
+	if _label and _held_knob.is_empty():
+		_label.visible = false
+
+
+static func _fmt(v: float, unit: String) -> String:
+	var txt := ("%.0f" % v) if absf(v) >= 100.0 else ("%.2f" % v)
+	return txt + (" " + unit if unit != "" else "")
 
 
 func _local_xf(n: Node3D) -> Transform3D:
@@ -145,6 +275,24 @@ func _process(_delta: float) -> void:
 			if tr.get_hand_joint_flags(j) & XRHandTracker.HAND_JOINT_FLAG_POSITION_TRACKED:
 				tips["%d_%d" % [hand, j]] = _world_tip(tr.get_hand_joint_transform(j).origin)
 	update_tips(tips, Time.get_ticks_msec() / 1000.0)
+	var pinches := {}
+	for side in [0, 1]:
+		var tr := XRServer.get_tracker("/user/hand_tracker/left" if side == 0 else "/user/hand_tracker/right") as XRHandTracker
+		if tr == null or not tr.has_tracking_data:
+			_pinching[side] = false
+			continue
+		var a := tr.get_hand_joint_transform(XRHandTracker.HAND_JOINT_THUMB_TIP).origin
+		var b := tr.get_hand_joint_transform(XRHandTracker.HAND_JOINT_INDEX_FINGER_TIP).origin
+		var d := a.distance_to(b)
+		var on: bool = d < (PINCH_OFF if _pinching.get(side, false) else PINCH_ON)
+		_pinching[side] = on
+		if on:
+			pinches[side] = _world_tip((a + b) * 0.5)
+	update_pinches(pinches)
+	_t_sync -= get_process_delta_time()
+	if _t_sync <= 0.0 and _held_knob.is_empty():
+		_t_sync = 0.25
+		_sync_knobs()
 
 
 ## Hand joints are in the play space, relative to the XROrigin3D.

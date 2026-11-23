@@ -64,3 +64,16 @@ func test_every_instrument_has_a_3d_model() -> void:
 		if m:
 			assert_gt(m.find_children("*", "MeshInstance3D", true, false).size(), 3, "%s model has meshes" % t)
 			m.free()
+
+
+func test_wrist_button_shows_when_palm_faces_you() -> void:
+	var head := Transform3D(Basis.IDENTITY, Vector3(0, 1.5, 0)) # looking down -Z
+	# Wrist in front of you and below, palm (+Z) turned up toward your eyes.
+	var at := Vector3(0, 1.2, -0.35)
+	var to_eyes := (head.origin - at).normalized()
+	var palm_up := Basis.looking_at(-to_eyes, Vector3.FORWARD) # +Z toward the eyes
+	assert_true(WristButton.palm_faces(Transform3D(palm_up, at), head))
+	var palm_down := Basis.looking_at(to_eyes, Vector3.FORWARD) # back of the hand toward you
+	assert_false(WristButton.palm_faces(Transform3D(palm_down, at), head))
+	# Palm toward you, but the wrist is behind you: not shown.
+	assert_false(WristButton.palm_faces(Transform3D(palm_up, Vector3(0, 1.2, 0.5)), head))

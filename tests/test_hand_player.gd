@@ -130,3 +130,25 @@ func test_pressed_part_sinks_and_returns() -> void:
 	assert_lt(z.node.position.y, rest.y)
 	_lift(m, 36)
 	assert_eq(z.node.position, rest)
+
+
+func test_pinch_and_turn_a_knob() -> void:
+	var rig := InstrumentRig.new()
+	rig.instrument = "Undertow"
+	rig.local_input = false
+	add_child_autofree(rig)
+	hp.rig = rig
+	var m := _load("Undertow")
+	assert_eq(hp.knobs.size(), 18, "all 18 Undertow knobs control something")
+	var k: Dictionary = hp.knobs[0]
+	assert_eq(k.id, "filter.cutoff")
+	var before := rig.synth.get_param("filter.cutoff")
+	var at: Vector3 = m.global_transform * k.center
+	hp.update_pinches({1: at})
+	hp.update_pinches({1: at + m.global_basis.y * 0.06}) # half the travel up
+	var after := rig.synth.get_param("filter.cutoff")
+	assert_gt(after, before, "moving the pinch up turns cutoff up (%.0f -> %.0f)" % [before, after])
+	assert_ne(k.node.basis, k.rest, "the knob turned")
+	hp.update_pinches({}) # let go
+	hp.update_pinches({1: at + Vector3(0.5, 0, 0)}) # a pinch far from any knob grabs nothing
+	assert_eq(rig.synth.get_param("filter.cutoff"), after)
