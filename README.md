@@ -2,7 +2,7 @@
 
 Multiplayer XR jam sessions: remote musicians hear each other in sync with spatial audio, play real instruments or six built-in synths, with sequencers, loopers and a shared metronome. See `DESIGN.md` for the full plan and `CLAUDE.md` for working rules.
 
-Godot 4.7.2 (GL Compatibility). Synths run in C++ in the `jamcore` GDExtension.
+Godot 4.7.2 (GL Compatibility). The instruments come from **SynthKit** (`D:\Godot_Projects\SynthKit`), the studio's shared synth addon (C++ engine, panels, presets), synced into `addons/synthkit` with `tools\sync_synthkit.ps1`.
 
 ## Status
 - **M1 synths: done** (Windows). Six instruments with full panels, 48 factory presets, user presets, share codes, MIDI input (USB, Android USB/BLE, Wi-Fi relay) with MIDI learn, on-screen keys and drum pads, Tangle patch editor.
