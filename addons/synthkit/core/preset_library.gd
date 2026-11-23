@@ -1,13 +1,13 @@
 class_name PresetLibrary
 extends RefCounted
-## Factory presets (res://presets/factory/<Instrument>/*.json, read-only) and
+## Factory presets (res://addons/synthkit/presets/factory/<Instrument>/*.json, read-only) and
 ## user presets (user://presets/<Instrument>/*.json). A preset is
 ## {format, instrument, name, description, author, params}; `params` lists
 ## only values that differ from the defaults (Tangle adds "patch").
 ##
 ## Share codes: "JAM1:" + base64url(deflate(json)), small enough for a QR code.
 
-const FACTORY_DIR := "res://presets/factory"
+const FACTORY_DIR := "res://addons/synthkit/presets/factory"
 const USER_DIR := "user://presets"
 const CODE_PREFIX := "JAM1:"
 

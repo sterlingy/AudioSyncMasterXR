@@ -28,6 +28,11 @@ var net: Object = null # Session: is_online(), master_push(data), master_remove(
 var _next_id := 1
 
 
+func _init() -> void:
+	# Every instrument (SynthKit's InstrumentRig) gets this app's looper.
+	InstrumentRig.looper_factory = func(rig: InstrumentRig) -> Object: return Looper.new(rig)
+
+
 func _ready() -> void:
 	Transport.register(self)
 	Transport.tempo_changed.connect(func(bpm):

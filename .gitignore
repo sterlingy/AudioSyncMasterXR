@@ -5,20 +5,11 @@ export.cfg
 export_credentials.cfg
 build/
 thirdparty/
-# jamcore build products
-jamcore/**/*.obj
-jamcore/**/*.o
-jamcore/.sconsign*.dblite
-jamcore/extension_api.json
-addons/jamcore/bin/*.lib
-addons/jamcore/bin/*.exp
-addons/jamcore/bin/*.pdb
-addons/jamcore/bin/*.ilk
+# SynthKit's engine binaries come from tools/sync_synthkit.ps1 (built in ../SynthKit)
+addons/synthkit/bin/
 test_output/
 build_log.txt
-addons/jamcore/bin/
 android_build.txt
 release_build.txt
 android/
-jamcore/**/*.os
 *.os

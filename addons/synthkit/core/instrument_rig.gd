@@ -2,8 +2,12 @@ class_name InstrumentRig
 extends Node
 ## One playable instrument: a JamSynth, the player that sounds it, and the
 ## wiring from MIDI / keyboard / on-screen input. Every note or control the
-## player makes goes out through `played`, which the sequencer, looper and
-## network layers listen to.
+## player makes goes out through `played`, so apps can add loopers, networking
+## or recording on top. Part of the SynthKit addon.
+##
+## Loopers: set InstrumentRig.looper_factory (a Callable taking the rig and
+## returning an object with capture(event), poll(), schedule(from_beat, to_beat)
+## and transport_stopped()) before rigs are created; each rig then makes one.
 ##
 ## MIDI learn: call learn(param_id), then move a knob on the controller.
 
@@ -29,8 +33,8 @@ const MAP_PATH := "user://midi_map.cfg"
 @export var local_input := true
 ## Play through an AudioStreamPlayer3D at this node's parent (XR), or flat.
 @export var spatial := false
-## Another player's instrument, mirrored by the Session: no local input, no
-## recording; notes, sound, sequencer and loops arrive over the network.
+## Driven from outside (e.g. another player's instrument mirrored over a
+## network): no local input, no recording.
 var remote := false
 
 var synth := JamSynth.new()
@@ -38,7 +42,10 @@ var player: Node
 var clip_player: Node # plays audio loops (created on first use)
 var _clips: JamSynth
 var sequencer: StepSequencer
-var looper: Looper
+## Made by looper_factory when an app sets one (null otherwise).
+var looper: Object
+## func(rig: InstrumentRig) -> Object: see the class notes. Empty = no looper.
+static var looper_factory := Callable()
 var _patterns := {} # instrument type -> sequencer dict (each instrument keeps its own pattern)
 var _seq_loaded := false
 var _live_shift := {} # note -> frames a live-quantized note was delayed by
@@ -61,8 +68,9 @@ func _ready() -> void:
 		player = p
 	add_child(player)
 	sequencer = StepSequencer.new(self)
-	looper = Looper.new(self)
-	played.connect(looper.capture)
+	if looper_factory.is_valid():
+		looper = looper_factory.call(self)
+		played.connect(looper.capture)
 	Transport.register(self)
 	# Methods, not lambdas: Godot drops these connections when the rig is freed.
 	Transport.tempo_changed.connect(_on_tempo)
@@ -97,7 +105,8 @@ func _exit_tree() -> void:
 
 
 func _process(_delta: float) -> void:
-	looper.poll()
+	if looper:
+		looper.poll()
 
 
 ## The Clips synth that plays this player's audio loops (made on first use).
@@ -192,15 +201,17 @@ func release_note(note: int, frame := -1) -> void:
 # ---- Transport client
 
 func schedule(from_beat: float, to_beat: float) -> void:
-	# Keep Tangle's clock modules locked to the session (cheap: one event per frame).
+	# Keep Tangle's clock modules locked to the shared clock (cheap: one event per frame).
 	synth.sync_transport(from_beat, Transport.frame_for(synth, from_beat))
 	sequencer.schedule(from_beat, to_beat)
-	looper.schedule(from_beat, to_beat)
+	if looper:
+		looper.schedule(from_beat, to_beat)
 
 
 func transport_stopped() -> void:
 	sequencer.transport_stopped()
-	looper.transport_stopped()
+	if looper:
+		looper.transport_stopped()
 
 
 func bend(value: float) -> void:

@@ -88,7 +88,7 @@ func _ready() -> void:
 
 	_link(Midi.devices_changed, _show_devices)
 	_link(Midi.bluetooth_status, _on_bt_status)
-	_link(Midi.net_status, _on_net_status)
+	_link(MidiNet.net_status, _on_net_status)
 	_show_devices(Midi.devices)
 
 

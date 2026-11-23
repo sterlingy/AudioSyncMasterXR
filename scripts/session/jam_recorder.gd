@@ -311,7 +311,7 @@ static func read_wav_mono(path: String) -> Dictionary:
 
 
 func _player_state(rig: InstrumentRig, name: String, key: String, base: String) -> Dictionary:
-	var loops := rig.looper.to_net()
+	var loops: Array = rig.looper.to_net()
 	var clip_files := {}
 	for id in rig.looper.used_clips():
 		var c: Dictionary = rig.looper.clips.get(id, {})

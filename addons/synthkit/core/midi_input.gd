@@ -1,12 +1,11 @@
 extends Node
 ## MIDI input for playing the instruments. Autoloaded as `Midi`.
-## Adapted from ChordMasterXR's MIDI autoload.
+## Part of the synthkit addon (from AudioSyncMaster, adapted from ChordMasterXR).
 ##
 ## Sources, all merged into the same signals:
 ## - USB MIDI on desktop (Godot's MIDI API; hot-plug rescans every 2 s).
 ## - USB and Bluetooth LE MIDI on Android, through the ChordMasterMidi Android
 ##   plugin (addons/chordmaster_midi; source in android_plugin/).
-## - Wi-Fi MIDI relay from another AudioSyncMaster (NetMidiLink).
 ## - The computer keyboard (home row = white keys, row above = black keys,
 ##   Z/X octave down/up, C/V velocity down/up).
 ## - On-screen keys and pads through inject_*.
@@ -22,7 +21,9 @@ signal pressure(value: float) # 0..1
 signal devices_changed(names: PackedStringArray)
 signal raw_event(text: String) # for a MIDI monitor
 signal bluetooth_status(text: String)
-signal net_status(text: String)
+## Messages from local sources (not ones passed in with from_network), as
+## (status, data1, data2), so an app can forward them, e.g. over Wi-Fi.
+signal outgoing(status: int, d1: int, d2: int)
 
 const QWERTY := {
 	KEY_A: 0, KEY_W: 1, KEY_S: 2, KEY_E: 3, KEY_D: 4, KEY_F: 5, KEY_T: 6,
@@ -34,7 +35,10 @@ var held: Dictionary = {} # pitch -> velocity
 var devices: PackedStringArray = []
 var qwerty_octave := 3 # A key = C3, a good default for bass and leads
 var qwerty_velocity := 100
-var net: NetMidiLink
+## The computer keyboard plays notes (home row) when true.
+var qwerty_input := true
+## -1 = omni, else only this channel (0-15).
+var midi_channel := -1
 
 var _poll_t := 0.0
 var _android: Object = null
@@ -42,17 +46,6 @@ var _qwerty_down := {} # keycode -> midi note
 
 
 func _ready() -> void:
-	qwerty_velocity = int(Settings.get_value("qwerty_velocity"))
-	net = NetMidiLink.new()
-	net.name = "NetMidi"
-	net.on_message = func(ch: int, type: int, d1: int, d2: int):
-		_dispatch_raw(ch, type, d1, d2, true)
-	net.status_changed.connect(func(t: String): net_status.emit(t))
-	add_child(net)
-	_apply_net_settings()
-	Settings.changed.connect(func(key: String):
-		if key.begins_with("net_"):
-			_apply_net_settings())
 	if Engine.has_singleton("ChordMasterMidi"):
 		_android = Engine.get_singleton("ChordMasterMidi")
 		_android.connect("midi_message", _on_android_message)
@@ -67,15 +60,6 @@ func _ready() -> void:
 func _exit_tree() -> void:
 	if _android == null:
 		OS.close_midi_inputs()
-
-
-func _apply_net_settings() -> void:
-	net.target = str(Settings.get_value("net_target")).strip_edges()
-	net.set_sending(bool(Settings.get_value("net_send")))
-	var rx = Settings.get_value("net_receive")
-	# Receive by default on Android (the headset), not on desktop: binding a
-	# port there makes Windows Firewall ask.
-	net.set_receiving(OS.has_feature("android") if rx == null else bool(rx))
 
 
 func has_android_plugin() -> bool:
@@ -126,7 +110,12 @@ func _on_android_message(status: int, d1: int, d2: int) -> void:
 	_dispatch_raw(status & 0x0F, status >> 4, d1, d2, false)
 
 
-## Raw channel message (status nibble, data bytes) from Android or the network.
+## Raw channel message (channel, type nibble, data bytes), e.g. from an app's
+## network relay (from_network = true keeps it from going back out).
+func dispatch_raw(channel: int, type: int, d1: int, d2: int, from_network := true) -> void:
+	_dispatch_raw(channel, type, d1, d2, from_network)
+
+
 func _dispatch_raw(channel: int, type: int, d1: int, d2: int, from_network: bool) -> void:
 	match type:
 		MIDI_MESSAGE_CONTROL_CHANGE:
@@ -140,7 +129,7 @@ func _dispatch_raw(channel: int, type: int, d1: int, d2: int, from_network: bool
 
 
 func _input(event: InputEvent) -> void:
-	if event is InputEventKey and Settings.get_value("qwerty_input"):
+	if event is InputEventKey and qwerty_input:
 		_qwerty(event as InputEventKey)
 		return
 	if not event is InputEventMIDI:
@@ -152,13 +141,13 @@ func _input(event: InputEvent) -> void:
 
 ## Shared by every input source. `bend14` is 0..16383 (8192 = centre).
 func handle_message(channel: int, message: int, pitch: int, velocity: int, cc_num := 0, cc_val := 0, bend14 := 8192, press := 0, from_network := false) -> void:
-	if not from_network and net and net.sending and message >= 0x8 and message <= 0xE:
+	if not from_network and message >= 0x8 and message <= 0xE:
 		match message:
-			MIDI_MESSAGE_CONTROL_CHANGE: net.send_midi((message << 4) | channel, cc_num, cc_val)
-			MIDI_MESSAGE_PITCH_BEND: net.send_midi((message << 4) | channel, bend14 & 0x7F, (bend14 >> 7) & 0x7F)
-			MIDI_MESSAGE_CHANNEL_PRESSURE: net.send_midi((message << 4) | channel, press, 0)
-			_: net.send_midi((message << 4) | channel, pitch, velocity)
-	var ch_setting: int = Settings.get_value("midi_channel")
+			MIDI_MESSAGE_CONTROL_CHANGE: outgoing.emit((message << 4) | channel, cc_num, cc_val)
+			MIDI_MESSAGE_PITCH_BEND: outgoing.emit((message << 4) | channel, bend14 & 0x7F, (bend14 >> 7) & 0x7F)
+			MIDI_MESSAGE_CHANNEL_PRESSURE: outgoing.emit((message << 4) | channel, press, 0)
+			_: outgoing.emit((message << 4) | channel, pitch, velocity)
+	var ch_setting := midi_channel
 	raw_event.emit("ch%d msg%d pitch%d vel%d cc%d=%d bend%d press%d" % [channel + 1, message, pitch, velocity, cc_num, cc_val, bend14, press])
 	if ch_setting >= 0 and channel != ch_setting:
 		return
@@ -199,12 +188,10 @@ func _qwerty(e: InputEventKey) -> void:
 				return
 			KEY_C:
 				qwerty_velocity = maxi(1, qwerty_velocity - 15)
-				Settings.set_value("qwerty_velocity", qwerty_velocity)
 				get_viewport().set_input_as_handled()
 				return
 			KEY_V:
 				qwerty_velocity = mini(127, qwerty_velocity + 15)
-				Settings.set_value("qwerty_velocity", qwerty_velocity)
 				get_viewport().set_input_as_handled()
 				return
 	if e.pressed and QWERTY.has(key):

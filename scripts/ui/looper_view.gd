@@ -99,7 +99,7 @@ func _select(i: int) -> void:
 
 
 func _refresh() -> void:
-	var lp := rig.looper
+	var lp: Looper = rig.looper
 	var colors := {Looper.State.EMPTY: Color(0.2, 0.2, 0.24), Looper.State.ARMED: Color("ffd166"), Looper.State.RECORDING: Color("ff4f5e"),
 		Looper.State.PLAYING: rig.color(), Looper.State.OVERDUB_ARMED: Color("ffb347"), Looper.State.OVERDUBBING: Color("ff7a45"), Looper.State.STOPPED: Color(0.35, 0.35, 0.4)}
 	for i in _slot_buttons.size():
@@ -128,7 +128,7 @@ func _refresh() -> void:
 
 
 func _push_master() -> void:
-	var data := rig.looper.export_slot()
+	var data: Dictionary = rig.looper.export_slot()
 	if not MasterLooper.push(data):
 		_state.text = "Record something in this slot first."
 
