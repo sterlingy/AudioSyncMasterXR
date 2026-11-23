@@ -1,0 +1,241 @@
+extends Node3D
+## The headset version of the app (feature "xr"; also runs flat on desktop for
+## testing). Passthrough shows your room; the whole app UI floats as a panel
+## you poke with a fingertip or pinch with the laser; your instrument sits on a
+## virtual table below it; remote players appear as avatars around you, with
+## their instruments and their sound coming from where they are.
+##
+## Built in code so the layout lives in one place.
+
+const PANEL_SIZE := Vector2(1.2, 0.675) # metres
+const PANEL_PIXELS := Vector2(1600, 900)
+const PANEL_POS := Vector3(0, 1.3, -0.75)
+const PANEL_TILT := -12.0 # degrees, top leans away
+const TABLE_POS := Vector3(0, 0.82, -0.45)
+const SEAT_RADIUS := 1.6
+
+var player: XROrigin3D
+var start_xr: Node
+var panel: Node3D
+var app: Control # the flat app (main.tscn) inside the panel
+var table: Node3D
+var _model: Node3D
+var _avatars := {} # player id -> {seat, avatar, model}
+var _shot := "" # dev: --xrshot=<path> saves a screenshot after a moment and quits
+var _shot_t := 1.5
+
+
+func _ready() -> void:
+	Session.spatial = true
+	_build_environment()
+	start_xr = load("res://addons/godot-xr-tools/xr/start_xr.tscn").instantiate()
+	add_child(start_xr)
+	player = load("res://addons/shivoo_xr/player/player.tscn").instantiate()
+	add_child(player)
+	var pass_through: Node = load("res://addons/shivoo_xr/scripts/passthrough.gd").new()
+	pass_through.name = "Passthrough"
+	pass_through.set("start_xr", start_xr)
+	add_child(pass_through)
+	_build_floor()
+	_build_panel()
+	_build_table()
+	_add_hand_tools.call_deferred()
+	Session.players_changed.connect(_sync_avatars)
+	for a in OS.get_cmdline_user_args():
+		if a.begins_with("--xrshot="):
+			_shot = a.trim_prefix("--xrshot=")
+
+
+func _build_environment() -> void:
+	var env := WorldEnvironment.new()
+	var e := Environment.new()
+	e.background_mode = Environment.BG_COLOR
+	e.background_color = Color(0.07, 0.075, 0.09)
+	e.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	e.ambient_light_color = Color(0.6, 0.62, 0.68)
+	e.ambient_light_energy = 0.5
+	env.environment = e
+	add_child(env)
+	var sun := DirectionalLight3D.new()
+	sun.rotation_degrees = Vector3(-55, -25, 0)
+	sun.light_energy = 0.9
+	add_child(sun)
+
+
+## Something to stand on (XR Tools' player body falls otherwise); invisible in passthrough.
+func _build_floor() -> void:
+	var body := StaticBody3D.new()
+	var shape := CollisionShape3D.new()
+	var box := BoxShape3D.new()
+	box.size = Vector3(20, 0.1, 20)
+	shape.shape = box
+	shape.position.y = -0.05
+	body.add_child(shape)
+	add_child(body)
+	var floor := MeshInstance3D.new()
+	var pm := PlaneMesh.new()
+	pm.size = Vector2(8, 8)
+	floor.mesh = pm
+	var m := StandardMaterial3D.new()
+	m.albedo_color = Color(0.13, 0.135, 0.15)
+	floor.material_override = m
+	floor.add_to_group(&"hide_in_passthrough")
+	add_child(floor)
+
+
+func _build_panel() -> void:
+	panel = load("res://addons/godot-xr-tools/objects/viewport_2d_in_3d.tscn").instantiate()
+	panel.name = "AppPanel"
+	panel.position = PANEL_POS
+	panel.rotation_degrees.x = PANEL_TILT
+	add_child(panel) # in the tree first: its setters build the viewport
+	panel.set("screen_size", PANEL_SIZE)
+	panel.set("viewport_size", PANEL_PIXELS)
+	panel.set("scene", load("res://scenes/main.tscn"))
+	var vp := panel.find_child("Viewport", true, false) as SubViewport
+	if vp == null:
+		for c in panel.find_children("*", "SubViewport", true, false):
+			vp = c
+	if vp:
+		vp.gui_embed_subwindows = true # dropdowns and dialogs open inside the panel
+		vp.transparent_bg = false
+		for c in vp.get_children():
+			if c is Control:
+				app = c
+
+
+func _build_table() -> void:
+	table = Node3D.new()
+	table.name = "Table"
+	table.position = TABLE_POS
+	add_child(table)
+	var top := MeshInstance3D.new()
+	var bm := BoxMesh.new()
+	bm.size = Vector3(0.9, 0.03, 0.45)
+	top.mesh = bm
+	var tm := StandardMaterial3D.new()
+	tm.albedo_color = Color(0.16, 0.16, 0.19, 0.6)
+	tm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	top.material_override = tm
+	top.position.y = -0.015
+	table.add_child(top)
+	if Session.local_rig:
+		_show_instrument(Session.local_rig.instrument)
+		Session.local_rig.instrument_changed.connect(_show_instrument)
+
+
+func _show_instrument(type: String) -> void:
+	if _model:
+		_model.queue_free()
+	_model = InstrumentModels.instantiate(type)
+	if _model:
+		table.add_child(_model)
+
+
+## Fingertip pokes on both hands (touch the panel) and a laser on each hand
+## (point and pinch/trigger from a distance). Hands are created by the rig at
+## runtime, so this runs deferred.
+func _add_hand_tools() -> void:
+	for side in ["LeftHand", "RightHand"]:
+		var ctl := player.get_node_or_null(side) as XRController3D
+		if ctl == null:
+			continue
+		var pointer: Node3D = load("res://addons/godot-xr-tools/functions/function_pointer.tscn").instantiate()
+		pointer.name = "FunctionPointer"
+		pointer.set("show_laser", 2) # only while pointing at something
+		ctl.add_child(pointer)
+		var tip := _index_tip(ctl)
+		var poke: Node3D = load("res://addons/godot-xr-tools/player/poke/poke.tscn").instantiate()
+		poke.name = "Poke"
+		if tip:
+			tip.add_child(poke)
+		else:
+			poke.position = Vector3(0, -0.02, -0.11) # roughly where a fingertip is from the grip
+			ctl.add_child(poke)
+
+
+## A BoneAttachment3D on the hand model's index fingertip, or null.
+func _index_tip(ctl: Node) -> Node3D:
+	for sk in ctl.find_children("*", "Skeleton3D", true, false):
+		var skel := sk as Skeleton3D
+		for i in skel.get_bone_count():
+			var n := skel.get_bone_name(i).to_lower()
+			if "index" in n and ("tip" in n or "distal" in n):
+				var att := BoneAttachment3D.new()
+				att.bone_name = skel.get_bone_name(i)
+				skel.add_child(att)
+				return att
+	return null
+
+
+func _process(delta: float) -> void:
+	if _shot != "":
+		_shot_t -= delta
+		if _shot_t <= 0.0:
+			get_viewport().get_texture().get_image().save_png(_shot)
+			print("screenshot: ", _shot)
+			get_tree().quit()
+	_send_pose()
+	_place_remote_sound()
+
+
+## Our head and hands, relative to our play space, for the others' avatars.
+func _send_pose() -> void:
+	var cam := player.get_node_or_null("Camera") as Node3D
+	var l := player.get_node_or_null("LeftHand") as Node3D
+	var r := player.get_node_or_null("RightHand") as Node3D
+	if cam and l and r and Session.is_online():
+		Session.set_local_pose(cam.transform, l.transform, r.transform)
+
+
+# ---- Remote players
+
+## Seats around you, facing you, in join order: across, then left and right.
+static func seat_transform(index: int) -> Transform3D:
+	var angles := [0.0, -50.0, 50.0, -100.0, 100.0]
+	var a := deg_to_rad(angles[index % angles.size()])
+	var pos := Vector3(sin(a) * SEAT_RADIUS, 0, -cos(a) * SEAT_RADIUS)
+	# The seat's own -Z points at you (as a player faces their instrument).
+	return Transform3D(Basis(Vector3.UP, a + PI), pos)
+
+
+func _sync_avatars() -> void:
+	var ids := Session.players.keys().filter(func(id): return Session.players[id].has("rig"))
+	ids.sort()
+	for id in _avatars.keys():
+		if not id in ids:
+			_avatars[id].seat.queue_free()
+			_avatars.erase(id)
+	for i in ids.size():
+		var id: int = ids[i]
+		if not _avatars.has(id):
+			var seat := Node3D.new()
+			seat.name = "Seat%d" % id
+			add_child(seat)
+			var av := RemoteAvatar.new()
+			av.player_id = id
+			seat.add_child(av)
+			_avatars[id] = {"seat": seat, "avatar": av, "model": null, "type": ""}
+		var a: Dictionary = _avatars[id]
+		a.seat.transform = seat_transform(i)
+		var type: String = Session.players[id].instrument
+		if a.type != type:
+			if a.model:
+				a.model.queue_free()
+			a.model = InstrumentModels.instantiate(type)
+			if a.model:
+				a.model.position = Vector3(0, 0.82, -0.45) # their table, in front of them
+				a.seat.add_child(a.model)
+			a.type = type
+
+
+## Each remote player's instrument, audio loops and voice play from their table.
+func _place_remote_sound() -> void:
+	for id in _avatars:
+		var p: Dictionary = Session.players.get(id, {})
+		if not p.has("rig"):
+			continue
+		var at: Vector3 = (_avatars[id].seat as Node3D).to_global(Vector3(0, 1.0, -0.45))
+		for node in [p.rig.player, p.rig.clip_player, p.get("voice")]:
+			if node is Node3D:
+				(node as Node3D).global_position = at

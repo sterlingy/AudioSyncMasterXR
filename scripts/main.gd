@@ -352,8 +352,8 @@ func _answer_suggestion(accept: bool) -> void:
 ## Phones and tablets: scale the whole UI by screen density so text and
 ## controls are finger-sized (desktop stays 1:1).
 func _fit_to_screen() -> void:
-	if not OS.has_feature("mobile"):
-		return
+	if not OS.has_feature("mobile") or get_viewport() != get_window():
+		return # desktop, or inside the XR panel (its own viewport)
 	var dpi := float(DisplayServer.screen_get_dpi())
 	get_window().content_scale_factor = ui_scale_for_dpi(dpi)
 

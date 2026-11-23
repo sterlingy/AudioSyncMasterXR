@@ -1,4 +1,11 @@
 ; Engine configuration file.
+; It's best edited using the editor UI and not directly,
+; since the parameters that go here are not all obvious.
+;
+; Format:
+;   [section] ; section goes between []
+;   param=value ; assign values to parameters
+
 config_version=5
 
 [application]
@@ -7,12 +14,12 @@ config/name="AudioSyncMaster"
 config/description="XR jam session: live remote musicians, built-in synths, sequencers and loopers."
 run/main_scene="res://scenes/main.tscn"
 config/features=PackedStringArray("4.7", "GL Compatibility")
+run/main_scene.xr="res://scenes/xr_main.tscn"
 
 [audio]
 
-driver/output_latency=15
-driver/enable_input.android=true
 driver/mix_rate=48000
+driver/enable_input.android=true
 
 [autoload]
 
@@ -21,6 +28,8 @@ Midi="*res://scripts/autoload/midi_input.gd"
 Transport="*res://scripts/autoload/transport.gd"
 MasterLooper="*res://scripts/autoload/master_looper.gd"
 Session="*res://scripts/net/session.gd"
+XRToolsUserSettings="*uid://bqgb8i74tm0t"
+XRToolsRumbleManager="*uid://by853dk86g1qw"
 
 [display]
 
@@ -29,10 +38,77 @@ window/size/viewport_height=900
 
 [editor_plugins]
 
-enabled=PackedStringArray("res://addons/gut/plugin.cfg", "res://addons/godot_ai/plugin.cfg", "res://addons/chordmaster_midi/plugin.cfg")
+enabled=PackedStringArray("res://addons/gut/plugin.cfg", "res://addons/godot_ai/plugin.cfg", "res://addons/chordmaster_midi/plugin.cfg", "res://addons/godot-xr-tools/plugin.cfg", "res://addons/shivoo_xr/plugin.cfg")
+
+[input]
+
+move_forward={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":87,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+move_back={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":83,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+move_left={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":65,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+move_right={
+"deadzone": 0.5,
+"events": [Object(InputEventKey,"resource_local_to_scene":false,"resource_name":"","device":-1,"window_id":0,"alt_pressed":false,"shift_pressed":false,"ctrl_pressed":false,"meta_pressed":false,"pressed":false,"keycode":68,"physical_keycode":0,"key_label":0,"unicode":0,"location":0,"echo":false,"script":null)
+]
+}
+
+[layer_names]
+
+3d_physics/layer_1="Static World"
+3d_physics/layer_2="Dynamic World"
+3d_physics/layer_3="Pickable Objects"
+3d_physics/layer_4="Wall Walking"
+3d_physics/layer_5="Grappling Target"
+3d_physics/layer_17="Held Objects"
+3d_physics/layer_18="Player Hands"
+3d_physics/layer_19="Grab Handles"
+3d_physics/layer_20="Player Body"
+3d_physics/layer_21="Pointable Objects"
+3d_physics/layer_22="Hand Pose Areas"
+3d_physics/layer_23="UI Objects"
+
+[physics]
+
+common/physics_ticks_per_second=90
+3d/physics_engine="Jolt Physics"
 
 [rendering]
 
 renderer/rendering_method="gl_compatibility"
 renderer/rendering_method.mobile="gl_compatibility"
 textures/vram_compression/import_etc2_astc=true
+anti_aliasing/quality/msaa_3d=2
+vrs/mode=2
+anti_aliasing/quality/msaa_3d.mobile=0
+
+[xr]
+
+openxr/environment_blend_mode=2
+openxr/foveation_level=1
+openxr/foveation_with_subsampled_images=false
+openxr/submit_depth_buffer=true
+openxr/startup_alert=false
+openxr/extensions/hand_tracking=true
+openxr/extensions/hand_interaction_profile=true
+openxr/extensions/spatial_entity/enabled=true
+openxr/extensions/spatial_entity/enable_marker_tracking=true
+openxr/extensions/spatial_entity/enable_builtin_marker_tracking=true
+openxr/extensions/eye_gaze_interaction=true
+shaders/enabled=true
+openxr/enabled.xr=true
+openxr/extensions/meta/passthrough=true
+openxr/extensions/androidxr/eye_tracking=true
+openxr/extensions/androidxr/passthrough_camera_state=true
+openxr/extensions/meta/dynamic_resolution=false
+openxr/action_map="res://openxr_action_map.tres"

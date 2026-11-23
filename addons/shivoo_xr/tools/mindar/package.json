@@ -1,0 +1,22 @@
+{
+  "name": "shivoo-mindar",
+  "private": true,
+  "version": "1.2.5-shivoo.0",
+  "description": "MindAR image tracking (github.com/hiukim/mind-ar-js v1.2.5), built as one script for the Godot web export.",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "vite build",
+    "bench": "vite --open /bench/index.html"
+  },
+  "dependencies": {
+    "@msgpack/msgpack": "^2.8.0",
+    "@tensorflow/tfjs": "^4.16.0",
+    "mathjs": "^11.6.0",
+    "ml-matrix": "^6.10.4",
+    "tinyqueue": "^2.0.3"
+  },
+  "devDependencies": {
+    "vite": "^5.0.11"
+  }
+}

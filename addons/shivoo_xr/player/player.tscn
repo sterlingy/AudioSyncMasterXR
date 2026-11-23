@@ -1,0 +1,68 @@
+[gd_scene format=3 uid="uid://qbg7bgktesfo"]
+
+[ext_resource type="PackedScene" uid="uid://b4kad2kuba1yn" path="res://addons/godot-xr-tools/hands/scenes/lowpoly/left_hand_low.tscn" id="1_5gtgg"]
+[ext_resource type="PackedScene" uid="uid://b4ysuy43poobf" path="res://addons/godot-xr-tools/functions/function_pickup.tscn" id="2_h17s1"]
+[ext_resource type="Material" uid="uid://p0q2df2dmy62" path="res://addons/godot-xr-tools/hands/materials/ghost_hand.tres" id="2_je7p5"]
+[ext_resource type="PackedScene" uid="uid://fiul51tsyoop" path="res://addons/godot-xr-tools/functions/function_teleport.tscn" id="3_je7p5"]
+[ext_resource type="PackedScene" uid="uid://l2n30mpbkdyw" path="res://addons/godot-xr-tools/hands/scenes/lowpoly/right_hand_low.tscn" id="4_fm80t"]
+[ext_resource type="PackedScene" uid="uid://bl2nuu3qhlb5k" path="res://addons/godot-xr-tools/functions/movement_direct.tscn" id="5_gx1jg"]
+[ext_resource type="PackedScene" uid="uid://b6bk2pj8vbj28" path="res://addons/godot-xr-tools/functions/movement_turn.tscn" id="6_ugbui"]
+[ext_resource type="PackedScene" uid="uid://diyu06cw06syv" path="res://addons/godot-xr-tools/player/player_body.tscn" id="7_fcs02"]
+[ext_resource type="Script" uid="uid://fi3p6afmuho7" path="res://addons/shivoo_xr/scripts/flat_play.gd" id="8_myrg7"]
+[ext_resource type="Script" uid="uid://0pm75jrjtukd" path="res://addons/shivoo_xr/scripts/webxr_actions.gd" id="9_kvlxm"]
+[ext_resource type="Script" uid="uid://di72qeklduwrt" path="res://addons/shivoo_xr/scripts/hand_tracking.gd" id="10_handtr"]
+[ext_resource type="Script" uid="uid://bd8l4mlbec1gm" path="res://addons/shivoo_xr/scripts/spawn_on_head.gd" id="11_spawnh"]
+
+[node name="Player" type="XROrigin3D" unique_id=2046889288]
+current = true
+
+[node name="Camera" type="XRCamera3D" parent="." unique_id=1531079472]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+current = true
+
+[node name="LeftHand" type="XRController3D" parent="." unique_id=209648065]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.22, 1.25, -0.35)
+tracker = &"left_hand"
+pose = &"aim"
+show_when_tracked = true
+
+[node name="LeftHandLow" parent="LeftHand" unique_id=1431562580 instance=ExtResource("1_5gtgg")]
+hand_material_override = ExtResource("2_je7p5")
+
+[node name="FunctionPickup" parent="LeftHand" unique_id=561569960 instance=ExtResource("2_h17s1")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.02, -0.05, 0.1)
+
+[node name="FunctionTeleport" parent="LeftHand" unique_id=225804850 instance=ExtResource("3_je7p5")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.02, -0.05, 0)
+
+[node name="RightHand" type="XRController3D" parent="." unique_id=1506978619]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.22, 1.25, -0.35)
+tracker = &"right_hand"
+pose = &"aim"
+show_when_tracked = true
+
+[node name="RightHandLow" parent="RightHand" unique_id=346946933 instance=ExtResource("4_fm80t")]
+hand_material_override = ExtResource("2_je7p5")
+
+[node name="FunctionPickup" parent="RightHand" unique_id=830727585 instance=ExtResource("2_h17s1")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.02, -0.05, 0.1)
+
+[node name="MovementDirect" parent="RightHand" unique_id=370296796 instance=ExtResource("5_gx1jg")]
+
+[node name="MovementTurn" parent="RightHand" unique_id=468554393 instance=ExtResource("6_ugbui")]
+
+[node name="PlayerBody" parent="." unique_id=194904138 instance=ExtResource("7_fcs02")]
+player_calibrate_height = false
+eye_forward_offset = 0.0
+
+[node name="FlatPlay" type="Node3D" parent="." unique_id=1400611872 groups=["movement_providers"]]
+script = ExtResource("8_myrg7")
+
+[node name="WebXRActions" type="Node" parent="." unique_id=762791954]
+script = ExtResource("9_kvlxm")
+
+[node name="HandTracking" type="Node" parent="." unique_id=1863054217]
+script = ExtResource("10_handtr")
+
+[node name="SpawnOnHead" type="Node" parent="." unique_id=1863054218]
+script = ExtResource("11_spawnh")

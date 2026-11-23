@@ -92,6 +92,9 @@ var send_audio := false
 ## Audio mode: my instrument goes out as audio in my stream (for players
 ## whose device can't render every instrument); the others mute their copy.
 var instrument_audio := false
+## XR: remote players' instruments and voices play through AudioStreamPlayer3D
+## (the XR scene moves them to each player's place). Set before joining.
+var spatial := false
 var input_device := -1 # -1 = system default
 var input_channel := -1 # -1 = mix all channels
 var audio_buffer_ms := 15.0 # receive jitter buffer
@@ -368,6 +371,7 @@ func _add_remote(info: Dictionary) -> void:
 	var rig := InstrumentRig.new()
 	rig.local_input = false
 	rig.remote = true
+	rig.spatial = spatial
 	rig.instrument = info.instrument
 	rig.name = "Player%d" % info.id
 	add_child(rig)
@@ -1185,7 +1189,12 @@ func _connect_audio(p: Dictionary) -> void:
 		port = pub[1]
 	audio.add_peer(p.id, ip, port)
 	if p.voice == null:
-		p.voice = AudioStreamPlayer.new()
+		if spatial:
+			var v3 := AudioStreamPlayer3D.new()
+			v3.unit_size = 4.0
+			p.voice = v3
+		else:
+			p.voice = AudioStreamPlayer.new()
 		p.voice.name = "Voice%d" % p.id
 		add_child(p.voice)
 	p.voice.stream = audio.get_peer_stream(p.id)
