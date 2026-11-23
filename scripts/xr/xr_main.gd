@@ -9,9 +9,12 @@ extends Node3D
 
 const PANEL_SIZE := Vector2(1.2, 0.675) # metres
 const PANEL_PIXELS := Vector2(1600, 900)
-const PANEL_POS := Vector3(0, 1.3, -0.75)
+# Placed relative to your head when XR starts (and on Recenter), so it fits
+# seated or standing: the panel just below eye level, the table at hand height.
+const PANEL_POS := Vector3(0, -0.12, -0.72)
 const PANEL_TILT := -12.0 # degrees, top leans away
-const TABLE_POS := Vector3(0, 0.82, -0.45)
+const TABLE_POS := Vector3(0, -0.58, -0.4)
+const DEFAULT_HEAD := Vector3(0, 1.45, 0) # before tracking starts (and flat play)
 const SEAT_RADIUS := 1.6
 
 var player: XROrigin3D
@@ -19,6 +22,8 @@ var start_xr: Node
 var panel: Node3D
 var app: Control # the flat app (main.tscn) inside the panel
 var table: Node3D
+var workspace: Node3D # panel + table, moved as one by recenter()
+var _t_fps := 5.0
 var _model: Node3D
 var _avatars := {} # player id -> {seat, avatar, model}
 var _shot := "" # dev: --xrshot=<path> saves a screenshot after a moment and quits
@@ -37,8 +42,18 @@ func _ready() -> void:
 	pass_through.set("start_xr", start_xr)
 	add_child(pass_through)
 	_build_floor()
+	workspace = Node3D.new()
+	workspace.name = "Workspace"
+	workspace.position = DEFAULT_HEAD
+	add_child(workspace)
 	_build_panel()
 	_build_table()
+	start_xr.connect("xr_started", func(): get_tree().create_timer(0.6).timeout.connect(recenter))
+	var openxr := XRServer.find_interface("OpenXR")
+	if openxr and openxr.has_signal("pose_recentered"):
+		openxr.connect("pose_recentered", recenter) # the headset's own recenter
+	if app and app.has_method("add_top_button"):
+		app.add_top_button("Recenter", "Move the panel and your instrument in front of you", recenter)
 	_add_hand_tools.call_deferred()
 	Session.players_changed.connect(_sync_avatars)
 	for a in OS.get_cmdline_user_args():
@@ -88,10 +103,10 @@ func _build_panel() -> void:
 	panel.name = "AppPanel"
 	panel.position = PANEL_POS
 	panel.rotation_degrees.x = PANEL_TILT
-	add_child(panel) # in the tree first: its setters build the viewport
-	panel.set("screen_size", PANEL_SIZE)
-	panel.set("viewport_size", PANEL_PIXELS)
+	workspace.add_child(panel) # in the tree first: its setters build the viewport
 	panel.set("scene", load("res://scenes/main.tscn"))
+	panel.set("viewport_size", PANEL_PIXELS)
+	panel.set("screen_size", PANEL_SIZE)
 	var vp := panel.find_child("Viewport", true, false) as SubViewport
 	if vp == null:
 		for c in panel.find_children("*", "SubViewport", true, false):
@@ -108,7 +123,7 @@ func _build_table() -> void:
 	table = Node3D.new()
 	table.name = "Table"
 	table.position = TABLE_POS
-	add_child(table)
+	workspace.add_child(table)
 	var top := MeshInstance3D.new()
 	var bm := BoxMesh.new()
 	bm.size = Vector3(0.9, 0.03, 0.45)
@@ -168,7 +183,24 @@ func _index_tip(ctl: Node) -> Node3D:
 	return null
 
 
+## Puts the panel and table in front of where you're looking, at your head height.
+func recenter() -> void:
+	var cam := player.get_node_or_null("Camera") as Node3D
+	if cam == null:
+		return
+	var head := cam.global_transform
+	var fwd := -head.basis.z
+	fwd.y = 0.0
+	if fwd.length() < 0.1:
+		fwd = Vector3.FORWARD
+	workspace.global_transform = Transform3D(Basis.looking_at(fwd.normalized(), Vector3.UP), head.origin)
+
+
 func _process(delta: float) -> void:
+	_t_fps -= delta
+	if _t_fps <= 0.0:
+		_t_fps = 5.0
+		print("XR: %d fps, DSP %.1f%%" % [Engine.get_frames_per_second(), Session.local_rig.synth.get_cpu_load() * 100.0 if Session.local_rig else 0.0])
 	if _shot != "":
 		_shot_t -= delta
 		if _shot_t <= 0.0:

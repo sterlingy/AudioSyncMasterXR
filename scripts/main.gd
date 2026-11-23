@@ -30,6 +30,7 @@ var _add_module: MenuButton
 var _presets: Array[Dictionary] = []
 var _share_dialog: AcceptDialog
 var _midi_dialog: MidiSettings
+var _top_bar: Control
 var _share_text: TextEdit
 var _share_qr: TextureRect
 var _save_dialog: ConfirmationDialog
@@ -119,6 +120,7 @@ func _ready() -> void:
 
 func _build_top_bar() -> Control:
 	var bar := HFlowContainer.new() # wraps onto a second line on narrow screens
+	_top_bar = bar
 	bar.add_theme_constant_override("h_separation", 8)
 	bar.add_theme_constant_override("v_separation", 6)
 	var title := Label.new()
@@ -300,6 +302,22 @@ func _build_transport_bar() -> Control:
 	grid.item_selected.connect(apply)
 	live.toggled.connect(apply)
 	return bar
+
+
+## For hosts of this scene (the XR panel): an extra button next to MIDI….
+func add_top_button(text: String, tooltip: String, cb: Callable) -> Button:
+	var b := Button.new()
+	b.text = text
+	b.tooltip_text = tooltip
+	b.pressed.connect(cb)
+	_top_bar.add_child(b)
+	var midi_at := -1
+	for c in _top_bar.get_children():
+		if c is Button and c.text == "MIDI…":
+			midi_at = c.get_index()
+	if midi_at >= 0:
+		_top_bar.move_child(b, midi_at + 1)
+	return b
 
 
 ## Keeps a label and its controls together when a flow bar wraps.
