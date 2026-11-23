@@ -1,0 +1,116 @@
+extends SceneTree
+## Feeds the XR app panel the pointer events a fingertip poke produces (on the
+## desktop, no headset) and checks that a knob turns and the instrument
+## dropdown opens. Run: godot --path . -s res://tests/tools/xr_panel_check.gd
+## Exit 0 = pass.
+
+var fails := 0
+
+
+func _initialize() -> void:
+	_run.call_deferred()
+
+
+func _run() -> void:
+	var xr: Node3D = load("res://scenes/xr_main.tscn").instantiate()
+	root.add_child(xr)
+	for i in 30:
+		await process_frame
+	var panel: Node3D = xr.panel
+	var body: Node = panel.get_node("StaticBody3D")
+	var app: Control = xr.app
+	var pointer := Node3D.new() # stands in for the fingertip poke
+	root.add_child(pointer)
+
+	# A knob: press, drag up 60 px, release.
+	var knobs := app.find_children("*", "Knob", true, false)
+	var knob: Control = null
+	for k in knobs:
+		if k.is_visible_in_tree():
+			knob = k
+			break
+	if knob == null:
+		_check(false, "found a visible knob")
+	else:
+		var c := knob.get_global_rect().get_center()
+		var before: float = knob.value
+		_poke(body, pointer, XRToolsPointerEvent.Type.ENTERED, c, c)
+		_poke(body, pointer, XRToolsPointerEvent.Type.PRESSED, c, c)
+		for s in 6:
+			var a := c + Vector2(0, -10 * s)
+			var b := c + Vector2(0, -10 * (s + 1))
+			_poke(body, pointer, XRToolsPointerEvent.Type.MOVED, b, a)
+			await process_frame
+		_poke(body, pointer, XRToolsPointerEvent.Type.RELEASED, c + Vector2(0, -60), c + Vector2(0, -60))
+		_poke(body, pointer, XRToolsPointerEvent.Type.EXITED, c + Vector2(0, -60), c + Vector2(0, -60))
+		await process_frame
+		_check(not is_equal_approx(knob.value, before), "knob turned by a poke drag (%.3f -> %.3f)" % [before, knob.value])
+
+	# The instrument dropdown: tap it.
+	var opt: OptionButton = app._inst_select
+	var oc := opt.get_global_rect().get_center()
+	_poke(body, pointer, XRToolsPointerEvent.Type.ENTERED, oc, oc)
+	_poke(body, pointer, XRToolsPointerEvent.Type.PRESSED, oc, oc)
+	await process_frame
+	_poke(body, pointer, XRToolsPointerEvent.Type.RELEASED, oc, oc)
+	await process_frame
+	await process_frame
+	_check(opt.get_popup().visible, "instrument dropdown opens on a tap")
+	# Pick the next instrument from the open list.
+	if opt.get_popup().visible:
+		var pop := opt.get_popup()
+		var want := (opt.selected + 1) % opt.item_count
+		var r := Rect2(pop.position, pop.size)
+		var y := r.position.y + (want + 0.5) * (r.size.y / opt.item_count)
+		var at := Vector2(r.get_center().x, y)
+		_poke(body, pointer, XRToolsPointerEvent.Type.MOVED, at, oc)
+		_poke(body, pointer, XRToolsPointerEvent.Type.PRESSED, at, at)
+		await process_frame
+		_poke(body, pointer, XRToolsPointerEvent.Type.RELEASED, at, at)
+		await process_frame
+		_check(opt.selected == want, "picked %s from the list (selected %d, wanted %d)" % [opt.get_item_text(want), opt.selected, want])
+	_poke(body, pointer, XRToolsPointerEvent.Type.EXITED, oc, oc)
+
+	# Move handle: grab it with a fingertip, move 30 cm right and 10 cm up.
+	var h: GrabHandle = xr.workspace.get_node("MoveHandle")
+	var before_ws: Vector3 = xr.workspace.global_position
+	pointer.global_position = h.global_position
+	h.pointer_event.emit(XRToolsPointerEvent.new(XRToolsPointerEvent.Type.PRESSED, pointer, h, h.global_position, h.global_position))
+	pointer.global_position += Vector3(0.3, 0.1, 0)
+	await process_frame
+	h.pointer_event.emit(XRToolsPointerEvent.new(XRToolsPointerEvent.Type.RELEASED, pointer, h, pointer.global_position, pointer.global_position))
+	var moved: Vector3 = xr.workspace.global_position - before_ws
+	_check(moved.distance_to(Vector3(0.3, 0.1, 0)) < 0.01, "panel and instrument follow the move handle (%s)" % moved)
+	# Instrument handle moves only the table.
+	var th: GrabHandle = xr.table.get_node("InstrumentHandle")
+	var panel_at: Vector3 = xr.panel.global_position
+	var table_at: Vector3 = xr.table.global_position
+	pointer.global_position = th.global_position
+	th.pointer_event.emit(XRToolsPointerEvent.new(XRToolsPointerEvent.Type.PRESSED, pointer, th, th.global_position, th.global_position))
+	pointer.global_position += Vector3(0, 0.05, 0.1)
+	await process_frame
+	th.pointer_event.emit(XRToolsPointerEvent.new(XRToolsPointerEvent.Type.RELEASED, pointer, th, pointer.global_position, pointer.global_position))
+	_check(xr.panel.global_position.is_equal_approx(panel_at) and xr.table.global_position.distance_to(table_at + Vector3(0, 0.05, 0.1)) < 0.01,
+		"instrument handle moves just the instrument")
+	print("PASS" if fails == 0 else "FAILED (%d)" % fails)
+	quit(0 if fails == 0 else 1)
+
+
+func _check(ok: bool, what: String) -> void:
+	print(("  ok   " if ok else "  FAIL ") + what)
+	if not ok:
+		fails += 1
+
+
+## Sends one pointer event at panel pixel `at` (moving from `from`).
+func _poke(body: Node, pointer: Node3D, type: int, at: Vector2, from: Vector2) -> void:
+	var ev := XRToolsPointerEvent.new(type, pointer, body, _to_3d(body, at), _to_3d(body, from))
+	body.pointer_event.emit(ev)
+
+
+func _to_3d(body: Node, px: Vector2) -> Vector3:
+	var shape: CollisionShape3D = body.get_node("CollisionShape3D")
+	var ss: Vector2 = body.screen_size
+	var vs: Vector2 = body.viewport_size
+	var local := Vector3((px.x / vs.x - 0.5) * ss.x, (0.5 - px.y / vs.y) * ss.y, 0.0)
+	return shape.global_transform * local

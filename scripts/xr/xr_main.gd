@@ -48,6 +48,7 @@ func _ready() -> void:
 	add_child(workspace)
 	_build_panel()
 	_build_table()
+	_build_handles()
 	start_xr.connect("xr_started", func(): get_tree().create_timer(0.6).timeout.connect(recenter))
 	var openxr := XRServer.find_interface("OpenXR")
 	if openxr and openxr.has_signal("pose_recentered"):
@@ -101,6 +102,7 @@ func _build_floor() -> void:
 func _build_panel() -> void:
 	panel = load("res://addons/godot-xr-tools/objects/viewport_2d_in_3d.tscn").instantiate()
 	panel.name = "AppPanel"
+	panel.get_node("StaticBody3D").set_script(load("res://scripts/xr/panel_body.gd")) # mouse events only
 	panel.position = PANEL_POS
 	panel.rotation_degrees.x = PANEL_TILT
 	workspace.add_child(panel) # in the tree first: its setters build the viewport
@@ -137,6 +139,25 @@ func _build_table() -> void:
 	if Session.local_rig:
 		_show_instrument(Session.local_rig.instrument)
 		Session.local_rig.instrument_changed.connect(_show_instrument)
+
+
+## Grab bars: under the panel (moves the panel and instrument together) and
+## at the front of the table (moves just the instrument).
+func _build_handles() -> void:
+	var cam := player.get_node_or_null("Camera") as Node3D
+	var move_all := GrabHandle.new()
+	move_all.name = "MoveHandle"
+	move_all.target = workspace
+	move_all.face = cam
+	move_all.position = Vector3(0, -0.47, -0.67)
+	workspace.add_child(move_all)
+	var move_inst := GrabHandle.new()
+	move_inst.name = "InstrumentHandle"
+	move_inst.target = table
+	move_inst.face = cam
+	move_inst.length = 0.18
+	move_inst.position = Vector3(0, -0.005, 0.26)
+	table.add_child(move_inst)
 
 
 func _show_instrument(type: String) -> void:
