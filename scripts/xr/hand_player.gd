@@ -22,7 +22,8 @@ const RELEASE_ABOVE := 0.003
 const MAX_FROM_BELOW := 0.04 # a tip further under the top than this doesn't press (hand resting on the body)
 const SINK := 0.004 # pressed parts move down this much
 const FULL_SPEED := 0.8 # m/s downward for full velocity
-# Knobs on the models: pinch one (thumb + index) and move your hand up/down.
+# Knobs on the models: pinch one (thumb + index), then move your hand right
+# (up) or left (down), along the instrument's own left-right.
 const KNOB_PARAMS := {
 	"Undertow": ["filter.cutoff", "filter.emphasis", "filter.contour", "fenv.attack", "fenv.decay", "fenv.sustain",
 		"mix.osc1", "mix.osc2", "mix.osc3", "mix.noise", "lenv.attack", "lenv.decay",
@@ -35,8 +36,12 @@ const KNOB_PARAMS := {
 const PINCH_ON := 0.022 # thumb-index distance that starts a pinch
 const PINCH_OFF := 0.035
 const KNOB_REACH := 0.045 # how close the pinch must be to a knob's centre
-const KNOB_TRAVEL := 0.12 # hand movement (m) for the full range
+const KNOB_TRAVEL := 0.12 # sideways hand movement (m) for the full range
+const LABEL_COLOR := Color(0.85, 0.87, 0.92)
+const LABEL_HELD := Color(0.4, 1.0, 0.9)
 const KNOB_SWEEP := 270.0 # degrees from minimum to maximum
+const KNOB_HEIGHT := 0.65 # the models' knobs are drawn at this fraction of their height
+const KNOB_WIDTH := 0.85 # ... and width, leaving room for the labels between rows
 
 var model: Node3D
 var origin: XROrigin3D # hand joints are relative to it
@@ -46,10 +51,9 @@ var zones: Array = [] # {note, min: Vector3, max: Vector3, node, rest: Vector3},
 var _tips := {} # tip id -> {pos: Vector3 (model-local), zone: int, t}
 var _strip: Node3D # Tangle's key strip
 var rig: InstrumentRig # whose parameters the knobs set (the local player's)
-var knobs: Array = [] # {node, id, name, unit, min, max, log, center (model-local), rest: Basis}
-var _held_knob := {} # hand side -> {knob, y0, t0}
+var knobs: Array = [] # {node, id, name, unit, min, max, log, center (model-local), rest: Basis, label: Label3D}
+var _held_knob := {} # hand side -> {knob, x0, t0}
 var _pinching := {} # hand side -> bool
-var _label: Label3D
 var _t_sync := 0.0
 
 
@@ -105,20 +109,41 @@ func _build_knobs() -> void:
 		var dot: Node3D = meshes.get(names[i] + "_dot")
 		if dot:
 			dot.reparent(node, true) # the marker turns with its knob
+		# Lower knobs (2/3 height, still sitting on the panel) so they don't hide the labels behind them.
+		var axis := node.basis.y.normalized()
+		var h := node.get_aabb().size.y * node.basis.y.length()
+		node.basis = node.basis * Basis.from_scale(Vector3(KNOB_WIDTH, KNOB_HEIGHT, KNOB_WIDTH))
+		node.position -= axis * h * (1.0 - KNOB_HEIGHT) * 0.5
 		var c: Vector3 = model.global_transform.affine_inverse() * node.global_position
-		knobs.append({"node": node, "id": ids[i], "name": str(info.name), "unit": str(info.unit), "min": float(info.min),
-			"max": float(info.max), "log": bool(info.log), "center": c, "rest": node.basis})
+		var k := {"node": node, "id": ids[i], "name": str(info.name), "unit": str(info.unit), "min": float(info.min),
+			"max": float(info.max), "log": bool(info.log), "center": c, "rest": node.basis}
+		k.label = _make_label(k)
+		knobs.append(k)
 	_sync_knobs()
-	if _label == null:
-		_label = Label3D.new()
-		_label.pixel_size = 0.0006
-		_label.font_size = 40
-		_label.billboard = BaseMaterial3D.BILLBOARD_ENABLED
-		_label.no_depth_test = true
-		_label.visible = false
-	if _label.get_parent():
-		_label.get_parent().remove_child(_label)
-	model.add_child(_label)
+
+
+## Name and value, lying on the panel just in front of (below) the knob, upright for the player.
+func _make_label(k: Dictionary) -> Label3D:
+	var l := Label3D.new()
+	l.name = String(k.node.name) + "_label"
+	l.pixel_size = 0.0002
+	l.font_size = 24
+	l.line_spacing = -3.0
+	l.outline_size = 6
+	l.modulate = LABEL_COLOR
+	l.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	l.vertical_alignment = VERTICAL_ALIGNMENT_TOP
+	var rest: Basis = k.rest
+	var up := rest.y.normalized() # the knob's axis: out of the panel surface
+	var toward_player := rest.z.normalized()
+	var radius := 0.0
+	var aabb: AABB = (k.node as MeshInstance3D).get_aabb()
+	radius = maxf(aabb.size.x, aabb.size.z) * 0.5 * KNOB_WIDTH
+	# Face out of the surface, text running left to right, top away from the player.
+	l.basis = rest.orthonormalized() * Basis(Vector3.RIGHT, deg_to_rad(-90))
+	l.position = k.center - up * (0.0045 - 0.009 * (1.0 - KNOB_HEIGHT)) + toward_player * (radius + 0.0015) # 1.5 mm above the surface, close to the knob
+	model.add_child(l)
+	return l
 
 
 func _to_t(k: Dictionary, v: float) -> float:
@@ -138,12 +163,25 @@ func _show_knob(k: Dictionary, t: float) -> void:
 		(k.node as Node3D).basis = (k.rest as Basis) * Basis(Vector3.UP, deg_to_rad(-(t - 0.5) * KNOB_SWEEP))
 
 
-## Knobs follow the sound (presets, panel, MIDI controllers).
+## Knobs and their labels follow the sound (presets, panel, MIDI controllers).
 func _sync_knobs() -> void:
 	if rig == null:
 		return
 	for k in knobs:
-		_show_knob(k, _to_t(k, rig.synth.get_param(k.id)))
+		var v := rig.synth.get_param(k.id)
+		_show_knob(k, _to_t(k, v))
+		_set_label(k, v, false)
+
+
+func _set_label(k: Dictionary, v: float, held: bool) -> void:
+	var l: Label3D = k.get("label")
+	if l == null or not is_instance_valid(l):
+		return
+	var nm: String = k.name
+	if nm.length() > 11:
+		nm = nm.left(10) + "."
+	l.text = "%s\n%s" % [nm, _fmt(v, k.unit)]
+	l.modulate = LABEL_HELD if held else LABEL_COLOR
 
 
 ## pinches: hand side -> world position of the pinch (thumb/index midpoint), for
@@ -154,19 +192,19 @@ func update_pinches(pinches: Dictionary) -> void:
 	var inv := model.global_transform.affine_inverse()
 	for side in _held_knob.keys():
 		if not pinches.has(side):
+			var k: Dictionary = _held_knob[side].knob
+			_set_label(k, rig.synth.get_param(k.id), false)
 			_held_knob.erase(side)
 	for side in pinches:
 		var p: Vector3 = inv * (pinches[side] as Vector3)
 		if _held_knob.has(side):
 			var h: Dictionary = _held_knob[side]
 			var k: Dictionary = h.knob
-			var t := clampf(float(h.t0) + (p.y - float(h.y0)) / KNOB_TRAVEL, 0.0, 1.0)
+			var t := clampf(float(h.t0) + (p.x - float(h.x0)) / KNOB_TRAVEL, 0.0, 1.0)
 			var v := _from_t(k, t)
 			rig.set_param(k.id, v)
 			_show_knob(k, t)
-			_label.text = "%s  %s" % [k.name, _fmt(v, k.unit)]
-			_label.position = k.center + Vector3(0, 0.06, 0)
-			_label.visible = true
+			_set_label(k, v, true)
 			continue
 		var best := -1
 		var best_d := KNOB_REACH
@@ -177,9 +215,8 @@ func update_pinches(pinches: Dictionary) -> void:
 				best = i
 		if best >= 0:
 			var k: Dictionary = knobs[best]
-			_held_knob[side] = {"knob": k, "y0": p.y, "t0": _to_t(k, rig.synth.get_param(k.id))}
-	if _label and _held_knob.is_empty():
-		_label.visible = false
+			_held_knob[side] = {"knob": k, "x0": p.x, "t0": _to_t(k, rig.synth.get_param(k.id))}
+			_set_label(k, rig.synth.get_param(k.id), true)
 
 
 static func _fmt(v: float, unit: String) -> String:

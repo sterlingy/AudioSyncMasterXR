@@ -145,10 +145,22 @@ func test_pinch_and_turn_a_knob() -> void:
 	var before := rig.synth.get_param("filter.cutoff")
 	var at: Vector3 = m.global_transform * k.center
 	hp.update_pinches({1: at})
-	hp.update_pinches({1: at + m.global_basis.y * 0.06}) # half the travel up
+	hp.update_pinches({1: at + m.global_basis.y * 0.05}) # moving up or down does nothing now
+	assert_almost_eq(rig.synth.get_param("filter.cutoff"), before, 0.01)
+	hp.update_pinches({1: at + m.global_basis.x * 0.06}) # half the travel to the right
 	var after := rig.synth.get_param("filter.cutoff")
-	assert_gt(after, before, "moving the pinch up turns cutoff up (%.0f -> %.0f)" % [before, after])
+	assert_gt(after, before, "moving the pinch right turns cutoff up (%.0f -> %.0f)" % [before, after])
+	assert_true(k.label.text.begins_with("Cutoff"), "label under the knob: " + k.label.text)
+	assert_true(k.label.text.contains("Hz"), "label shows the value with its unit")
+	hp.update_pinches({1: at + m.global_basis.x * -0.2}) # far left: bottom of the range
+	assert_almost_eq(rig.synth.get_param("filter.cutoff"), float(k.min), 0.01)
 	assert_ne(k.node.basis, k.rest, "the knob turned")
 	hp.update_pinches({}) # let go
+	var low := rig.synth.get_param("filter.cutoff")
 	hp.update_pinches({1: at + Vector3(0.5, 0, 0)}) # a pinch far from any knob grabs nothing
-	assert_eq(rig.synth.get_param("filter.cutoff"), after)
+	assert_eq(rig.synth.get_param("filter.cutoff"), low)
+	assert_eq(model_labels(m), 18, "every knob has a label")
+
+
+func model_labels(m: Node3D) -> int:
+	return m.find_children("*_label", "Label3D", true, false).size()
