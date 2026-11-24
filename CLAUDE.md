@@ -13,7 +13,7 @@ This project is a multiplayer XR jam-session app built in Godot 4.7.2: remote mu
 - Latency is the top metric. Measure it and show it; don't add buffering without a reason.
 - Virtual instruments send timestamped note events, not audio (audio mode is the fallback).
 - Remote avatars are delayed to match each peer's audio latency.
-- Git stays local: never add a remote or push.
+- Git remote: `origin` = github.com/sterlingy/AudioSyncMasterXR (branch `main`). Push only when the user asks. SynthKit and the other studio repos stay local (no remotes).
 - A Galaxy XR headset is available over wireless adb when the user has it on (ask them to wake it). Build and test on Windows first (flat mode, headless tests, `tests/tools/xr_panel_check.gd`); note headset-only follow-ups in `docs/TODO-headset.md`.
 
 ## Layout
