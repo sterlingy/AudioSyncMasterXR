@@ -1,0 +1,102 @@
+# Handoff: continuing AudioSyncMaster on music-machine
+
+Written 2026-11-25 on Roogna (the main dev PC) so work can carry on from **music-machine**, which runs 24/7. Read this, then `CLAUDE.md` and `DESIGN.md`.
+
+## Where everything is
+
+| | GitHub | music-machine | Roogna |
+|---|---|---|---|
+| **AudioSyncMaster** (this project) | github.com/sterlingy/AudioSyncMasterXR (public, `main`) | `D:\AudioSyncMaster` | `D:\Godot_Projects\AudioSyncMaster` |
+| **SynthKit** (shared instruments) | github.com/sterlingy/SynthKit (private, `main`) | `D:\SynthKit` (own clone) and the `addons\synthkit` submodule | `D:\Godot_Projects\SynthKit` and the submodule |
+| **MusicBeaconXR** (Beacon Field) | github.com/sterlingy/MusicBeaconXR (public; web on Pages) | `D:\MusicBeaconXR` | not cloned |
+| **ChordMasterXR** | GitLab (shivoostudios, `origin`) + github.com/sterlingy/ChordMasterXR (`github`) | `D:\ChordMasterXR` | `D:\Godot_Projects\ChordMasterXR` |
+
+On music-machine the SynthKit clone sits next to the projects (`D:\SynthKit`), so `..\SynthKit` works on both machines.
+
+**Tools on music-machine**
+- Godot 4.7.2: `C:\Godot\Godot_v4.7.2-stable_win64_console.exe`. The older copy is in `C:\ASM\godot`.
+- Android SDK: `C:\Android\sdk`. adb is `C:\Android\sdk\platform-tools\adb.exe`, which is not on PATH.
+- JDK 17: `C:\Android\jdk-17`.
+- Blender 4.5: `C:\Program Files\Blender Foundation\Blender 4.5\blender.exe`.
+- VS 2022 Community, Python and Node.
+
+**Missing on music-machine (2026-11-25)**
+- **Godot 4.7.2 export templates.** `%APPDATA%\Godot\export_templates` is empty, so no APK or Windows export works until they're installed.
+- **SCons** (`pip install scons`), needed for engine builds.
+- **SynthKit's third-party clones** (`engine\thirdparty`, git-ignored; see SynthKit `docs/THIRDPARTY.md`). Only needed to rebuild the C++ engine; the committed binaries work without them.
+
+## Start here (music-machine)
+```powershell
+cd D:\AudioSyncMaster
+git pull
+git submodule update --init
+powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1
+C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://tests/tools/net_test.gd
+```
+- music-machine's PowerShell blocks script files, so run scripts with `-ExecutionPolicy Bypass`.
+- The first run imports the project, which takes a minute.
+- Expect **75/75** GUT tests and **PASS** from the session test.
+
+## State of the project
+- **Done on Windows:**
+  - M1–M5;
+  - tap tempo and tempo suggestions;
+  - interval mode;
+  - instrument audio mode;
+  - avatar poses;
+  - the MIDI dialog;
+  - touch layout;
+  - M8 connection server (`server/`).
+- **XR (M6), first pass, runs on Galaxy XR.** Features:
+  - passthrough;
+  - the panel in 3D (fingertip poke and pinch laser);
+  - grab bars;
+  - wrist reset button and Recenter;
+  - no teleport;
+  - fingertip-played 3D instruments;
+  - knobs: pinch, then move sideways, with name and value labels.
+- **Instruments come from SynthKit**, a git submodule at `addons/synthkit`. It now has **seven** instruments: Prism (keys / lead / pad) was added in MusicBeaconXR. Prism has a 3D model here (`assets/instruments/Prism.glb`) and XR hand-play mapping.
+- **Website material:**
+  - user manual `docs/MANUAL.md`;
+  - hero images `docs/images/hero_1920x1080*.{png,jpg}`, made by `assets/instruments/source/make_hero.py` (Blender, headless) and `add_title.py` (title and badge).
+
+## Open work, in the order the user was heading
+1. **SynthKit for every platform.**
+   - The user's goal: one SynthKit, with versions for all platforms. When it's updated, every platform gets the features it can use.
+   - Finding: the C++ core (`engine/src/dsp`, `instruments`, `engine`, ~13.5k lines) has **no Godot dependencies**. Only `jam_synth.*`, `register_types.cpp` and `net/` use Godot.
+   - Proposed layout:
+     - **core** (plain C++);
+     - **Godot plugin** (desktop, Android, XR);
+     - **web module**: the same core compiled to WebAssembly, run in an AudioWorklet, with a small JS API;
+     - network audio and mic only where supported.
+   - The web module needs **Emscripten** (emsdk, about 1 GB), which isn't installed. Ask the user before downloading.
+   - Then have GitHub Actions build every platform on each push, and add a test that renders the same notes on every build.
+2. **AudioSyncMaster web / WebAR version**, solo:
+   - instruments, sequencer, looper, presets;
+   - AR with the instrument on a table.
+   - Jamming stays in the installed apps, because browsers can't send its UDP audio.
+   - Reuse Beacon Field's web pages (`MusicBeaconXR/web`: `synths.js`, `ar.html`, `src/ar/*`) on top of the web module from item 1.
+   - Publish it on GitHub Pages, but **don't share or link the URL**: the user wants it live, not announced.
+3. **MusicBeaconXR → SynthKit submodule.**
+   - It still has a copied `addons/synthkit`, synced by script. Also move Beacon Field's browser instruments (`web/src/synths.js`, Web Audio rewrites of the original six, without Prism) into SynthKit.
+   - It was on hold on 2026-11-25: `D:\SynthKit` had uncommitted, rebuilt engine binaries (the other changes were only line endings), belonging to another session.
+   - `D:\SynthKit` now has GitHub as `origin` but is still on its old local `master`. Once those binaries are committed or discarded, merge with `origin/main`: GitHub has two extra commits, the `.uid` file and Prism's colour.
+4. **Hero image text** says "SIX BUILT-IN SYNTHS". It's seven now. Edit `FEATURES` in `add_title.py` and rerun it.
+5. **Website session** (Sterling's Lab site): it asked for app info, which was sent. The app has no public build. The manual's GitHub URL exists, but the user hasn't said to give it to the site yet.
+
+## Waiting on the user or the headset
+- Feedback in the headset on the sideways knobs and labels, and installing the latest XR build, which has SynthKit and Prism. Ask the user to wake the headset. Export with the "Android XR" preset; the exporter hangs after DONE, so stop it once the APK exists, then `adb install -r -g`.
+- Where the connection server runs (`server/asm_server.py`, UDP 47900). A relay for strict NATs isn't built.
+- A buffer test with real sound cards on two machines. See `docs/TODO-headset.md`.
+
+## Two-machine tests
+- **Addresses (ZeroTier):** music-machine is 10.241.70.124 and Roogna is 10.241.111.150.
+- **Commands:** host with `net_test.gd -- --remote`; client with `-- --join=<host IP>`. Either machine can host; Roogna has to be on.
+- **Clock gap:** the two machines' Windows clocks differ by about 720 ms, so wall-clock checks don't work between them.
+
+## Working with this user
+- If something needs the user (a headset, a sign-in, a download), ask right away so the work isn't held up later.
+- Commit as work lands. **Push only when the user asks.**
+- Keep the user's email private.
+- Don't copy GPL code (Jamulus, SonoBus, NINJAM, VCV Rack). Never compile DaisySP-LGPL.
+- No trademarked instrument names or look-alike panels.
