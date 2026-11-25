@@ -20,7 +20,7 @@ On music-machine the SynthKit clone sits next to the projects (`D:\SynthKit`), s
 - Blender 4.5: `C:\Program Files\Blender Foundation\Blender 4.5\blender.exe`.
 - VS 2022 Community, Python and Node.
 - Emscripten 7.0.1 (emsdk `latest`, installed 2026-11-25): `C:\emsdk`. Not on PATH; in each PowerShell run `& C:\emsdk\emsdk_env.ps1` first, then `em++`.
-- Godot 4.7.2 export templates: installed in `%APPDATA%\Godot\export_templates.7.2.stable`.
+- Godot 4.7.2 export templates: installed in `%APPDATA%\Godot\export_templates\4.7.2.stable`.
 
 **Missing on music-machine (2026-11-25)**
 - **SCons** (`pip install scons`), needed for engine builds.
