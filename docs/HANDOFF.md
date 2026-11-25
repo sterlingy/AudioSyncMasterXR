@@ -62,11 +62,11 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
   - hero images `docs/images/hero_1920x1080*.{png,jpg}`, made by `assets/instruments/source/make_hero.py` (Blender, headless) and `add_title.py` (title and badge).
 
 ## Open work, in the order the user was heading
-1. **SynthKit for every platform.** Mostly done 2026-11-25 (SynthKit `ba94c40`, local, not pushed). See SynthKit's README, "Platforms".
+1. **SynthKit for every platform.** Mostly done 2026-11-25 (SynthKit `ba94c40`, pushed to GitHub `main`). See SynthKit's README, "Platforms".
    - The user's goal: one SynthKit holding every platform's version; each platform ships only its own build and gets each new feature it can run.
    - Done: `engine/core` (plain C++) + `engine/godot` + `engine/web`; `jam::Synth` shared by both adapters; `JamSynth.get_capabilities()` / `kit.capabilities` with the same keys; `web/` (synthkit.wasm, AudioWorklet, JS API, demo); `engine/tests/run_render_test.ps1` (Godot vs web, 16 cases, 66-128 dB SNR; the refactored Godot build is bit-exact with the old one).
    - Left: GitHub Actions building every platform on push; running the render test against the Android build (needs the headset or an emulator); moving `PresetLibrary.apply` into `jam::Synth`; mic input on the web.
-   - AudioSyncMaster's `addons/synthkit` still points at `c9b3c36`. Once SynthKit is pushed, update the submodule and rerun the tests.
+   - AudioSyncMaster's `addons/synthkit` points at `ba94c40` (75/75 tests and the session test pass).
    - Emscripten is at `C:\emsdk` (see Tools); `engine\tools\build_web.ps1` builds the web module.
 2. **AudioSyncMaster web / WebAR version**, solo:
    - instruments, sequencer, looper, presets;
