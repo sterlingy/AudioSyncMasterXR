@@ -1,0 +1,4 @@
+[submodule "addons/synthkit"]
+	path = addons/synthkit
+	url = https://github.com/sterlingy/SynthKit.git
+	branch = main

@@ -5,7 +5,7 @@ This project is a multiplayer XR jam-session app built in Godot 4.7.2: remote mu
 **Read `DESIGN.md` first.** It holds the architecture, platforms, instruments, latency targets, sync techniques, licensing constraints and the milestone plan.
 
 ## Key rules
-- **The instruments live in SynthKit** (`D:\Godot_Projects\SynthKit`), the studio's shared synth addon: the C++ engine (`jamcore` GDExtension) and its source, instrument rig, sequencer, presets, clock, MIDI input and panels. Change them there, then `tools/sync_synthkit.ps1` (`-Build` to build the Windows engine first); never edit `addons/synthkit/` here. Keep SynthKit free of this app's code (sessions, looper, recording, XR, Settings): apps hook in through `InstrumentRig.looper_factory`, `rig.played`, `Midi.outgoing`/`dispatch_raw`. SynthKit is also used by MusicBeaconXR (on music-machine).
+- **The instruments live in SynthKit** (`D:\Godot_Projects\SynthKit`), the studio's shared synth addon: the C++ engine (`jamcore` GDExtension) and its source, instrument rig, sequencer, presets, clock, MIDI input and panels. `addons/synthkit` is a git submodule of github.com/sterlingy/SynthKit (private). Change SynthKit in its own clone (`D:\Godot_Projects\SynthKit`), commit and push there, then `tools/update_synthkit.ps1` here and commit the new submodule pointer; never edit `addons/synthkit/` in place. Keep SynthKit free of this app's code (sessions, looper, recording, XR, Settings): apps hook in through `InstrumentRig.looper_factory`, `rig.played`, `Midi.outgoing`/`dispatch_raw`. SynthKit is also used by MusicBeaconXR (on music-machine). It has seven instruments now (Prism came from MusicBeaconXR); every instrument needs a model in `assets/instruments`.
 - Audio goes per person over UDP using **AOO** (BSD), compiled into SynthKit's engine (`JamAudioLink`). Do not mix audio on a server.
 - Synth DSP lives in C++ in the engine, never per-sample GDScript. No allocation or locks on the audio thread.
 - Avoid copying code from GPL projects (Jamulus, SonoBus, NINJAM, VCV Rack) unless the project decides to go GPL. JackTrip's MIT core is OK; check per-file licenses.
@@ -13,17 +13,17 @@ This project is a multiplayer XR jam-session app built in Godot 4.7.2: remote mu
 - Latency is the top metric. Measure it and show it; don't add buffering without a reason.
 - Virtual instruments send timestamped note events, not audio (audio mode is the fallback).
 - Remote avatars are delayed to match each peer's audio latency.
-- Git remote: `origin` = github.com/sterlingy/AudioSyncMasterXR (branch `main`). Push only when the user asks. SynthKit and the other studio repos stay local (no remotes).
+- Git remote: `origin` = github.com/sterlingy/AudioSyncMasterXR (branch `main`). Push only when the user asks. SynthKit's remote is github.com/sterlingy/SynthKit (`main`).
 - A Galaxy XR headset is available over wireless adb when the user has it on (ask them to wake it). Build and test on Windows first (flat mode, headless tests, `tests/tools/xr_panel_check.gd`); note headset-only follow-ups in `docs/TODO-headset.md`.
 
 ## Layout
-- `addons/synthkit/` — the shared instruments, synced from SynthKit (engine binaries git-ignored here).
+- `addons/synthkit/` — the shared instruments: the SynthKit submodule (clone with `--recurse-submodules`, or `git submodule update --init`).
 - `addons/` also: shivoo_xr (copied from ShivooXRPlugin, not a submodule: git stays local), godot-xr-tools, godotopenxrvendors, chordmaster_midi (Android MIDI plugin from ChordMasterXR), gut.
 - `scenes/`, `scripts/` (app: sessions, looper, recording, XR, UI shell), `tests/` (GUT), `server/` (connection server), `assets/instruments/` (3D models).
 
 ## Building
 - Godot: `C:\Users\sterl\Downloads\Godot_v4.7.2-stable_win64.exe\Godot_v4.7.2-stable_win64_console.exe` (not on PATH).
-- Engine (in SynthKit, from a VS 2022 developer environment): `..\SynthKit\engine\tools\build_aoo.ps1` once, then `..\SynthKit\engine\tools\build.ps1` (`-Platform android`, `-Target release`). Then `tools/sync_synthkit.ps1` copies the addon here.
+- Engine (in SynthKit, from a VS 2022 developer environment): `..\SynthKit\engine\tools\build_aoo.ps1` once, then `..\SynthKit\engine\tools\build.ps1` (`-Platform android`, `-Target release`). Commit and push SynthKit, then `tools/update_synthkit.ps1` here.
 - XR build: export preset "Android XR" (feature `xr`, starts `scenes/xr_main.tscn`); the exporter hangs after DONE, so stop it once the APK is written, then `adb install -r -g`.
 - Tests: `tools/run_tests.ps1` (GUT) and the two-process session test `godot --headless --path . -s res://tests/tools/net_test.gd`. Two machines: host with `-- --remote`, client with `-- --join=<host IP>` (second machine: music-machine over ZeroTier, see memory).
 

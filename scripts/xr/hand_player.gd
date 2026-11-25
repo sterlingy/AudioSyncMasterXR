@@ -12,7 +12,7 @@ extends Node
 
 const WHITE := [0, 2, 4, 5, 7, 9, 11]
 const BLACK_AFTER := {0: 1, 1: 3, 3: 6, 4: 8, 5: 10} # white index in octave -> semitone of the black key after it
-const BASE_NOTE := {"Undertow": 36, "Comet": 60, "Lumen": 48, "Tangle": 48}
+const BASE_NOTE := {"Undertow": 36, "Comet": 60, "Lumen": 48, "Prism": 48, "Tangle": 48}
 const PADS := {"00": 36, "10": 38, "20": 39, "30": 42, "01": 46, "11": 45, "21": 50, "31": 49}
 const BARS := [60, 62, 64, 65, 67, 69, 71, 72, 74] # Driftwood, low on the left
 const TINES := [84, 79, 76, 72, 74, 77, 81] # kalimba: lowest in the middle
@@ -32,6 +32,7 @@ const KNOB_PARAMS := {
 	"Lumen": ["filter.cutoff", "filter.resonance", "filter.env", "aenv.attack", "aenv.release", "lfo.rate",
 		"chorus.mix", "reverb.size", "reverb.mix", "out.volume"],
 	"Pulsar": ["kick.tune", "kick.decay", "snare.tone", "snare.snap", "chat.decay", "ohat.decay", "master.drive", "master.volume"],
+	"Prism": ["macro1", "macro2", "macro3", "macro4", "f1.cutoff", "f1.resonance", "a.morph", "env1.release"],
 }
 const PINCH_ON := 0.022 # thumb-index distance that starts a pinch
 const PINCH_OFF := 0.035

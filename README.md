@@ -1,14 +1,14 @@
 # AudioSyncMaster
 
-Multiplayer XR jam sessions: remote musicians hear each other in sync with spatial audio, play real instruments or six built-in synths, with sequencers, loopers and a shared metronome. See `DESIGN.md` for the full plan and `CLAUDE.md` for working rules.
+Multiplayer XR jam sessions: remote musicians hear each other in sync with spatial audio, play real instruments or seven built-in synths, with sequencers, loopers and a shared metronome. See `DESIGN.md` for the full plan and `CLAUDE.md` for working rules.
 
 **New here? Read the [User Manual](docs/MANUAL.md).**
 
 
-Godot 4.7.2 (GL Compatibility). The instruments come from **SynthKit** (`D:\Godot_Projects\SynthKit`), the studio's shared synth addon (C++ engine, panels, presets), synced into `addons/synthkit` with `tools\sync_synthkit.ps1`.
+Godot 4.7.2 (GL Compatibility). The instruments come from **SynthKit** (`D:\Godot_Projects\SynthKit`), the studio's shared synth addon (C++ engine, panels, presets), included as a git submodule at `addons/synthkit` (github.com/sterlingy/SynthKit).
 
 ## Status
-- **M1 synths: done** (Windows). Six instruments with full panels, 48 factory presets, user presets, share codes, MIDI input (USB, Android USB/BLE, Wi-Fi relay) with MIDI learn, on-screen keys and drum pads, Tangle patch editor.
+- **M1 synths: done** (Windows). Six instruments (now seven, with Prism from SynthKit) with full panels, 48 factory presets (56 with Prism's), user presets, share codes, MIDI input (USB, Android USB/BLE, Wi-Fi relay) with MIDI learn, on-screen keys and drum pads, Tangle patch editor.
 - **M2 clock, metronome, sequencers, quantize: done locally.** Network clock sync arrives with M4.
 - **M3 loopers: done.** Note loops for virtual instruments and audio loops for mics/real instruments (Looper tab, "Records: Audio input"), cut at the bar lines you heard; the master looper is shared in sessions and takes both.
 - **M4 LAN sessions: done on Windows.** Host or join from the **Jam** tab (up to 6 players). Clock sync to within ~0.1 ms, tempo and transport follow the host, everyone's sound/sequencer/loops play in sync from the shared clock, live notes go player to player and are scheduled on the audio link's network thread (no frame delay), and mic/instrument audio streams per player over AOO (PCM or Opus) with native WASAPI capture (shared, or exclusive for ~3 ms input periods). Per-player volume, mute and latency display.
@@ -41,10 +41,11 @@ Rebuilding the Android export needs the gradle template: `godot --headless --ins
 | **Tangle** | Modular | 12 modules (MIDI→CV, Clock, VCO, Noise/S&H, VCF, Dual VCA, ADSR, LFO, Step Sequencer, Utility, Delay, Reverb+Output) and patch cables |
 
 ## Running
-1. Get the instruments from SynthKit, next to this project (if `..\SynthKit\bin` is empty, build its engine first: see SynthKit's README; Visual Studio 2022 C++ tools and `pip install scons` needed):
+1. Get the instruments (the SynthKit submodule, engine binaries included). Clone with `git clone --recurse-submodules`, or in an existing clone:
    ```powershell
-   tools\sync_synthkit.ps1
+   git submodule update --init
    ```
+   `tools\update_synthkit.ps1` moves to SynthKit's latest version.
 2. Open the project in Godot 4.7.2 and press F5, or run it from the command line.
 
 Playing: MIDI keyboard/controller, or the computer keyboard (A–L white keys, W E T Y U O P black keys, Z/X octave, C/V velocity), or click the on-screen keys. Right-click any knob → **MIDI Learn**, then move a controller knob.
@@ -64,7 +65,7 @@ Engine tests (pitch accuracy, sample-accurate events, polyphony, sustain, Tangle
 `tests/tools/render_check.gd` renders every instrument to `test_output/*.wav` for listening.
 
 ## Layout
-- `addons/synthkit/` — the instruments, from SynthKit: engine binaries (`JamSynth`, `JamAudioLink`, ...), `InstrumentRig`, sequencer, presets, `Transport`, `Midi`, panels, knobs, Tangle editor, keyboard. Their source and engine build live in `D:\Godot_Projects\SynthKit`.
+- `addons/synthkit/` — the instruments, from SynthKit: engine binaries (`JamSynth`, `JamAudioLink`, ...), `InstrumentRig`, sequencer, presets, `Transport`, `Midi`, panels, knobs, Tangle editor, keyboard. A git submodule of SynthKit, which also holds the engine source and build scripts.
 - `scripts/` — this app: `ui/` (Looper and Jam tabs, MIDI dialog), `looper/`, `presets/` (QR codes), `autoload/` (Settings, MidiNet, MasterLooper), `net/` (Session, clock sync, connection server client, Wi-Fi MIDI relay, poses), `session/` (jam recording), `xr/` (headset scene, hand playing, panel input), `avatar/`.
 - `server/` — the connection server for online sessions.
 - `assets/instruments/` — the 3D instrument models (Blender source alongside).

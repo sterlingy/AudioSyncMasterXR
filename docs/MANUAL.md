@@ -4,7 +4,7 @@
 
 ![AudioSyncMaster](images/hero_1920x1080.jpg)
 
-AudioSyncMaster lets musicians in different places play together live. You see the other players as avatars and hear everyone in time, with each player's sound coming from where they stand. Play your voice or a real instrument through a mic or audio interface, or one of six built-in synths. Add step sequencers and loopers, plus a shared master looper and one metronome for everyone.
+AudioSyncMaster lets musicians in different places play together live. You see the other players as avatars and hear everyone in time, with each player's sound coming from where they stand. Play your voice or a real instrument through a mic or audio interface, or one of seven built-in synths. Add step sequencers and loopers, plus a shared master looper and one metronome for everyone.
 
 > **Early preview.** AudioSyncMaster is in development. The desktop version (Windows) is complete; the headset version is a first pass, and online play needs a connection server that isn't hosted publicly yet. This manual describes the app as it is today.
 
@@ -12,7 +12,7 @@ AudioSyncMaster lets musicians in different places play together live. You see t
 1. [What you need](#1-what-you-need)
 2. [The screen](#2-the-screen)
 3. [Playing an instrument](#3-playing-an-instrument)
-4. [The six instruments](#4-the-six-instruments)
+4. [The seven instruments](#4-the-seven-instruments)
 5. [Sounds and presets](#5-sounds-and-presets)
 6. [The clock: tempo, metronome, quantize](#6-the-clock-tempo-metronome-quantize)
 7. [Sequencer](#7-sequencer)
@@ -48,7 +48,7 @@ The app isn't available in a browser: browsers can't send audio the way AudioSyn
 From top to bottom:
 
 **Top bar**
-- **Instrument picker**: choose one of the six instruments.
+- **Instrument picker**: choose one of the seven instruments.
 - **◀ preset ▶**: pick a sound, or step through them.
 - **Save…**: keep the current sound as your own preset.
 - **Share…**: turn the sound into a code or QR image, or load someone else's.
@@ -97,9 +97,9 @@ The status line shows the current octave and velocity.
 
 ---
 
-## 4. The six instruments
+## 4. The seven instruments
 
-All six are synthesized live; none of them uses samples.
+All seven are synthesized live; none of them uses samples.
 
 | Instrument | Role | What it does |
 |---|---|---|
@@ -107,6 +107,7 @@ All six are synthesized live; none of them uses samples.
 | **Undertow** | Bass | Three oscillators, a mixer with a feedback loop, a 24 dB ladder filter, two envelopes and glide. |
 | **Comet** | Lead | Two oscillators with hard sync, a sub oscillator, a multimode filter, vibrato, portamento and ping-pong delay. |
 | **Lumen** | Keys / pads | 8 voices, LFO, gentle analog-style drift, chorus and reverb. |
+| **Prism** | Keys / lead / pad | Two sound engines (analog, wavetable or FM) with sub, noise, ring mod and wavefold, two filters, three envelopes, three LFOs, four macros and a modulation matrix. |
 | **Driftwood** | Plucks / mallets | Plucked strings plus marimba, vibes, kalimba, bell and glass models. |
 | **Tangle** | Modular | 12 modules connected with patch cables (see below). |
 
@@ -121,7 +122,7 @@ All six are synthesized live; none of them uses samples.
 
 ## 5. Sounds and presets
 
-- Each instrument comes with factory presets, 48 in total. Pick one from the preset list, or step through them with **◀ ▶**.
+- Each instrument comes with factory presets, 56 in total. Pick one from the preset list, or step through them with **◀ ▶**.
 - **Save…** stores the current sound as your own preset. Your presets appear in the list marked **★**.
 - **Share…** turns the current sound into a text code and a QR code:
   - **Copy** puts the code on the clipboard, so you can send it in a message.

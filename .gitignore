@@ -5,8 +5,6 @@ export.cfg
 export_credentials.cfg
 build/
 thirdparty/
-# SynthKit's engine binaries come from tools/sync_synthkit.ps1 (built in ../SynthKit)
-addons/synthkit/bin/
 test_output/
 build_log.txt
 android_build.txt
