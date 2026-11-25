@@ -19,9 +19,10 @@ On music-machine the SynthKit clone sits next to the projects (`D:\SynthKit`), s
 - JDK 17: `C:\Android\jdk-17`.
 - Blender 4.5: `C:\Program Files\Blender Foundation\Blender 4.5\blender.exe`.
 - VS 2022 Community, Python and Node.
+- Emscripten 7.0.1 (emsdk `latest`, installed 2026-11-25): `C:\emsdk`. Not on PATH; in each PowerShell run `& C:\emsdk\emsdk_env.ps1` first, then `em++`.
+- Godot 4.7.2 export templates: installed in `%APPDATA%\Godot\export_templates.7.2.stable`.
 
 **Missing on music-machine (2026-11-25)**
-- **Godot 4.7.2 export templates.** `%APPDATA%\Godot\export_templates` is empty, so no APK or Windows export works until they're installed.
 - **SCons** (`pip install scons`), needed for engine builds.
 - **SynthKit's third-party clones** (`engine\thirdparty`, git-ignored; see SynthKit `docs/THIRDPARTY.md`). Only needed to rebuild the C++ engine; the committed binaries work without them.
 
@@ -34,7 +35,7 @@ powershell -ExecutionPolicy Bypass -File tools\run_tests.ps1
 C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://tests/tools/net_test.gd
 ```
 - music-machine's PowerShell blocks script files, so run scripts with `-ExecutionPolicy Bypass`.
-- The first run imports the project, which takes a minute.
+- On a fresh checkout, import first (`Godot --headless --path . --import`) or the tests can't resolve class names.
 - Expect **75/75** GUT tests and **PASS** from the session test.
 
 ## State of the project
@@ -69,7 +70,7 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
      - **Godot plugin** (desktop, Android, XR);
      - **web module**: the same core compiled to WebAssembly, run in an AudioWorklet, with a small JS API;
      - network audio and mic only where supported.
-   - The web module needs **Emscripten** (emsdk, about 1 GB), which isn't installed. Ask the user before downloading.
+   - The web module uses **Emscripten**, installed at `C:\emsdk` (see Tools).
    - Then have GitHub Actions build every platform on each push, and add a test that renders the same notes on every build.
 2. **AudioSyncMaster web / WebAR version**, solo:
    - instruments, sequencer, looper, presets;
