@@ -131,7 +131,8 @@ func _build_top_bar() -> Control:
 
 	_inst_select = OptionButton.new()
 	for t in JamSynth.get_instrument_types():
-		if t != "Metronome" and t != "Clips":
+		# Sampler needs sample sets and a 3D model, which this project doesn't have yet
+		if t != "Metronome" and t != "Clips" and t != "Sampler":
 			_inst_select.add_item(t)
 	_inst_select.item_selected.connect(func(i):
 		var t := _inst_select.get_item_text(i)

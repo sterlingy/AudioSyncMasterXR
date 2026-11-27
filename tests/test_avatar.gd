@@ -57,7 +57,7 @@ func test_avatar_delay_follows_what_you_hear() -> void:
 
 func test_every_instrument_has_a_3d_model() -> void:
 	for t in JamSynth.get_instrument_types():
-		if t == "Metronome" or t == "Clips":
+		if t == "Metronome" or t == "Clips" or t == "Sampler": # Sampler isn't offered here yet (see main.gd)
 			continue
 		var m := InstrumentModels.instantiate(t)
 		assert_not_null(m, "%s has a model" % t)
