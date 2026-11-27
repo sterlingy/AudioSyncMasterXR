@@ -30,9 +30,9 @@ is skipped because no headset is available.
 ## XR milestone (M6), needs the headset to verify
 - XR scene with the Shivoo XR rig (`addons/shivoo_xr` submodule from `D:\Godot_Projects\ShivooXRPlugin`, plus godot-xr-tools 4.5.2 and OpenXR Vendors 5.2.0).
 - Panels in 3D: the flat panels rendered into SubViewports on movable XR panels, operated by fingertip/pinch (pattern from ChordMasterXR's XR controls).
-- Passthrough by default; VR stage toggle; measure frame rate with six instruments visible.
+- Passthrough by default; VR stage toggle; measure frame rate with seven instruments visible.
 - Hand-played instruments (drum pads you hit, a floating keyboard).
-- 3D instruments (M7 first pass): `assets/instruments/<Name>.glb` (source: `assets/instruments/source/instruments.blend`), loaded with `InstrumentModels.instantiate(type)`; `scenes/instrument_gallery.tscn` shows all six. Check scale and readability in the headset and give pads/keys colliders for hand play.
+- 3D instruments (M7 first pass): `assets/instruments/<Name>.glb` (source: `assets/instruments/source/instruments.blend`), loaded with `InstrumentModels.instantiate(type)`; `scenes/instrument_gallery.tscn` shows all seven. Check scale and readability in the headset and give pads/keys colliders for hand play.
 - Instruments play through `AudioStreamPlayer3D` at each player (`InstrumentRig.spatial = true`).
 - Avatars: the networking is done and tested (`Session.set_local_pose(head, left, right)` each frame from the XR rig; `Session.remote_pose(id)` gives each remote player's pose delayed to when their sound reaches you; `RemoteAvatar` is a placeholder head + hands). Hook the rig's camera/controllers to `set_local_pose`, spawn a `RemoteAvatar` per remote player, and check by eye that a remote strum lines up with its sound.
 

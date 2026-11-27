@@ -1,4 +1,4 @@
-# Handoff: continuing AudioSyncMaster on music-machine
+# Handoff: continuing JamSyncXR (formerly AudioSyncMaster) on music-machine
 
 Written 2026-11-25 on Roogna (the main dev PC) so work can carry on from **music-machine**, which runs 24/7; updated 2026-11-26. Read this, then `CLAUDE.md` and `DESIGN.md`.
 
@@ -67,7 +67,7 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
    - The user's goal: one SynthKit holding every platform's version; each platform ships only its own build and gets each new feature it can run.
    - Done: `engine/core` (plain C++) + `engine/godot` + `engine/web`; `jam::Synth` shared by both adapters; `JamSynth.get_capabilities()` / `kit.capabilities` with the same keys; `web/` (synthkit.wasm, AudioWorklet, JS API, demo); `engine/tests/run_render_test.ps1` (Godot vs web, 16 cases, 66-128 dB SNR; the refactored Godot build is bit-exact with the old one).
    - Left: GitHub Actions building every platform on push; running the render test against the Android build (needs the headset or an emulator); moving `PresetLibrary.apply` into `jam::Synth`; mic input on the web.
-   - AudioSyncMaster's `addons/synthkit` points at `a37098c` (SynthKit's Sampler instrument, 2026-11-26; 75/75 tests pass).
+   - AudioSyncMaster's `addons/synthkit` points at `a37098c` (SynthKit's Sampler instrument, 2026-11-26; 79/79 tests pass).
    - Sampler isn't offered here yet: it needs sample sets and a 3D model, so `scripts/main.gd` and `tests/test_avatar.gd` skip it like Metronome and Clips.
    - Emscripten is at `C:\emsdk` (see Tools); `engine\tools\build_web.ps1` builds the web module.
 2. **AudioSyncMaster web / WebAR version**, solo:
