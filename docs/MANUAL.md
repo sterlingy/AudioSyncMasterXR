@@ -33,7 +33,7 @@ AudioSyncMaster lets musicians in different places play together live. You see t
 | | |
 |---|---|
 | **Computer** | Windows 10 or 11. |
-| **Headset** (optional) | Android XR headset: Samsung Galaxy XR today; XReal Aura and Meta Quest planned. |
+| **Headset** (optional) | Samsung Galaxy XR or XREAL Aura (Android XR), or Meta Quest 2, 3, 3S or Pro. Each has its own app build. The Aura and Quest builds are new and not yet tested. |
 | **Headphones** | Wired, or the headset's own speakers. **Not Bluetooth headphones**: they add too much delay to play in time. |
 | **To play** | The computer keyboard, the on-screen keys, or any MIDI keyboard/controller (USB, or Bluetooth on Android). |
 | **For your voice or a real instrument** | A microphone, or an audio interface with direct monitoring. |

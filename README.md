@@ -16,7 +16,15 @@ Godot 4.7.2 (GL Compatibility). The instruments come from **SynthKit** (`D:\Godo
 - **Since M5:** **Tap** tempo and a click-volume slider; players' tempo changes reach the host as suggestions (Accept/Ignore). **Interval mode** (Jam tab → Timing) plays everyone else exactly 1 or 2 bars late so far-away players land in time; the Jam tab suggests it when someone reaches you more than 40 ms late. **Send instrument as audio** streams your instrument instead of notes. Avatars' head/hand poses are sent and shown delayed to match each player's sound (for XR). **MIDI…** dialog with Bluetooth MIDI scan, input channel and the Wi-Fi relay. The UI wraps and scrolls on small screens, the on-screen keys take multi-touch chords, and phones scale the UI by screen density.
 - **M7 3D instruments: first pass.** Six stylized models made in Blender (`assets/instruments/*.glb`, source `.blend` alongside); `scenes/instrument_gallery.tscn` shows them. ![3D instruments](docs/images/instruments_3d.png)
 - **M8 online sessions: built, waiting for a server.** `server/asm_server.py` gives the host a room code; others press **Join online** and type it. It only introduces players and opens direct paths through home routers; see `server/README.md`. Tested through a local server; a real test over the internet needs the server on a public machine. Strict NATs will need a relay (not built).
-- **Android:** arm64 engine builds with AOO; `build/android/AudioSyncMaster.apk` (flat, debug) exports with the MIDI plugin. Mic input uses Godot's microphone there. Untested on a device.
+- **Android:** arm64 engine builds with AOO. Three Android builds, all with the MIDI plugin. Mic input uses Godot's microphone there.
+
+  | Preset | For | APK | Package |
+  |---|---|---|---|
+  | Android (flat) | phones, tablets | `build/android/AudioSyncMaster.apk` | `com.shivoostudios.jamsyncxr` |
+  | Android XR | Galaxy XR, XREAL Aura | `build/android/AudioSyncMasterXR.apk` | `com.shivoostudios.jamsyncxr.xr` |
+  | Quest | Quest 2, 3, 3S, Pro | `build/android/AudioSyncMasterQuest.apk` | `com.shivoostudios.jamsyncxr.quest` |
+
+  The two XR builds are the same project and XR scene, all OpenXR. They differ only in the OpenXR Vendors loader and Android settings each headset expects, so each headset gets its own APK. The XR build runs on Galaxy XR; the Quest and Aura builds are not yet tested on a device.
 - Headset steps wait in `docs/TODO-headset.md`.
 
 Keys: Space = play/stop, R = looper record/overdub.
@@ -29,7 +37,13 @@ Keys: Space = play/stop, R = looper record/overdub.
 
 Two instances on one PC: `godot --path . -- --host --name=A` and `godot --path . -- --join=127.0.0.1 --name=B`.
 
-Rebuilding the Android export needs the gradle template: `godot --headless --install-android-build-template --export-debug "Android (flat)" build/android/AudioSyncMaster.apk` (the generated `android/` folder is git-ignored).
+## Building for Android and headsets
+`powershell -ExecutionPolicy Bypass -File tools\export_android.ps1 <preset>` with `Quest`, `"Android XR"` or `"Android (flat)"` (add `-Release` for a release build), then `adb install -r -g build\android\<apk>`.
+- The script installs the Gradle build template into `android/` on first use. That folder is git-ignored; the rule is `/android/`, so the OpenXR Vendors plugin's own Android binaries under `addons/` are committed.
+- It builds with a short temp folder (`build/tmp`) because Gradle's Java fails with "Unable to establish loopback connection" when the temp path has a space in it.
+- Godot may not exit after a headless export; the script stops it once the export is done.
+- Needs Godot 4.7.2 with its export templates, and the Android SDK, JDK 17 and debug keystore set in Editor Settings.
+- XR addons: OpenXR Vendors 5.2.0 and godot-xr-tools 4.5.2. `addons/godot-xr-tools/player/player_body.gd` has this project's own fixes (no falling through the floor, zero-length head cast, fade clamp): keep them when updating XR Tools.
 
 | Instrument | Role | Notes |
 |---|---|---|

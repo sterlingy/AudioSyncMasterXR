@@ -1,6 +1,6 @@
 # Handoff: continuing AudioSyncMaster on music-machine
 
-Written 2026-11-25 on Roogna (the main dev PC) so work can carry on from **music-machine**, which runs 24/7. Read this, then `CLAUDE.md` and `DESIGN.md`.
+Written 2026-11-25 on Roogna (the main dev PC) so work can carry on from **music-machine**, which runs 24/7; updated 2026-11-26. Read this, then `CLAUDE.md` and `DESIGN.md`.
 
 ## Where everything is
 
@@ -21,6 +21,7 @@ On music-machine the SynthKit clone sits next to the projects (`D:\SynthKit`), s
 - VS 2022 Community, Python and Node.
 - Emscripten 7.0.1 (emsdk `latest`, installed 2026-11-25): `C:\emsdk`. Not on PATH; in each PowerShell run `& C:\emsdk\emsdk_env.ps1` first, then `em++`.
 - Godot 4.7.2 export templates: installed in `%APPDATA%\Godot\export_templates\4.7.2.stable`.
+- Android build template: installed in `D:\AudioSyncMaster\android` (git-ignored) on 2026-11-26. `tools\export_android.ps1` builds every Android preset; see README, "Building for Android and headsets".
 
 **Missing on music-machine (2026-11-25)**
 - **SCons** (`pip install scons`), needed for engine builds.
@@ -66,7 +67,8 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
    - The user's goal: one SynthKit holding every platform's version; each platform ships only its own build and gets each new feature it can run.
    - Done: `engine/core` (plain C++) + `engine/godot` + `engine/web`; `jam::Synth` shared by both adapters; `JamSynth.get_capabilities()` / `kit.capabilities` with the same keys; `web/` (synthkit.wasm, AudioWorklet, JS API, demo); `engine/tests/run_render_test.ps1` (Godot vs web, 16 cases, 66-128 dB SNR; the refactored Godot build is bit-exact with the old one).
    - Left: GitHub Actions building every platform on push; running the render test against the Android build (needs the headset or an emulator); moving `PresetLibrary.apply` into `jam::Synth`; mic input on the web.
-   - AudioSyncMaster's `addons/synthkit` points at `ba94c40` (75/75 tests and the session test pass).
+   - AudioSyncMaster's `addons/synthkit` points at `a37098c` (SynthKit's Sampler instrument, 2026-11-26; 75/75 tests pass).
+   - Sampler isn't offered here yet: it needs sample sets and a 3D model, so `scripts/main.gd` and `tests/test_avatar.gd` skip it like Metronome and Clips.
    - Emscripten is at `C:\emsdk` (see Tools); `engine\tools\build_web.ps1` builds the web module.
 2. **AudioSyncMaster web / WebAR version**, solo:
    - instruments, sequencer, looper, presets;
@@ -76,13 +78,21 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
    - Publish it on GitHub Pages, but **don't share or link the URL**: the user wants it live, not announced.
 3. **MusicBeaconXR → SynthKit submodule.**
    - It still has a copied `addons/synthkit`, synced by script. Also move Beacon Field's browser instruments (`web/src/synths.js`, Web Audio rewrites of the original six, without Prism) into SynthKit.
-   - It was on hold on 2026-11-25: `D:\SynthKit` had uncommitted, rebuilt engine binaries (the other changes were only line endings), belonging to another session.
-   - `D:\SynthKit` now has GitHub as `origin` but is still on its old local `master`. Once those binaries are committed or discarded, merge with `origin/main`: GitHub has two extra commits, the `.uid` file and Prism's colour.
+   - Handed to a MusicBeaconXR session on 2026-11-25 with a brief (`D:\SterlingsLab\JamSyncXR\MusicBeaconXR-SynthKit-brief.md`): Godot onto the submodule first, then a proposal for the browser.
+   - `D:\SynthKit`: local `master` tracks GitHub `main` and is at `a37098c`. Its 56 factory preset files show as changed, but only in line endings.
 4. **Hero image text** says "SIX BUILT-IN SYNTHS". It's seven now. Edit `FEATURES` in `add_title.py` and rerun it.
 5. **Website session** (Sterling's Lab site): it asked for app info, which was sent. The app has no public build. The manual's GitHub URL exists, but the user hasn't said to give it to the site yet.
 
 ## Waiting on the user or the headset
-- Feedback in the headset on the sideways knobs and labels, and installing the latest XR build, which has SynthKit and Prism. Ask the user to wake the headset. Export with the "Android XR" preset; the exporter hangs after DONE, so stop it once the APK exists, then `adb install -r -g`.
+- Feedback in the headset on the sideways knobs and labels, and installing the latest XR build, which has SynthKit and Prism. Ask the user to wake the headset. `tools\export_android.ps1 "Android XR"` (Galaxy XR, Aura) or `tools\export_android.ps1 Quest`, then `adb install -r -g`. See `docs/TODO-headset.md`, "First runs of the XR builds".
+
+## XR and Android builds (2026-11-26)
+- **Addons:** OpenXR Vendors 5.2.0 and godot-xr-tools 4.5.2 (the latest releases). XR Tools 4.5.2's code was already here; `player_body.gd` keeps this project's fixes, which upstream lacks.
+- **Android binaries are committed:** `.gitignore` had `android/`, which also hid `addons/godotopenxrvendors/.bin/android/`, so a fresh clone couldn't export for a headset. It's now `/android/`.
+- **Package IDs** are `com.shivoostudios.jamsyncxr` (flat), `.xr` (Android XR) and `.quest` (Quest). They were `com.shivoostudios.audiosyncmaster...`; headsets treat the new ones as new apps. Display names still say AudioSyncMaster.
+- **Quest preset:** the Meta loader in place of Android XR's, with the same project and scene, since everything is OpenXR. No Meta/Quest SDK is needed. One APK per headset family, because each expects its own manifest.
+- **Built on music-machine:** debug APKs for Quest and Android XR, signed, with the expected manifests. Neither has run on a device yet.
+- **Known:** Godot exits with 0xC0000005 after the GUT run (the tests pass first), with both the old and new addons. Exports warn that no project icon is set.
 - Where the connection server runs (`server/asm_server.py`, UDP 47900). A relay for strict NATs isn't built.
 - A buffer test with real sound cards on two machines. See `docs/TODO-headset.md`.
 

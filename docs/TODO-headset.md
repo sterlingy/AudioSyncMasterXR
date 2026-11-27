@@ -11,6 +11,11 @@ is skipped because no headset is available.
 4. **Bluetooth LE MIDI**: pair a BLE MIDI keyboard, then press **MIDI… → Scan for Bluetooth MIDI**. Accept the Bluetooth permission prompt.
 5. **Wi-Fi MIDI relay**: laptop sends (`net_send`), headset receives (on by default on Android). Ports 47820/47821 UDP.
 
+## First runs of the XR builds (2026-11-26)
+- **Quest**: `tools\export_android.ps1 Quest`, then `adb install -r -g build\android\AudioSyncMasterQuest.apk`. Check that it starts in the headset (not as a flat window), hand tracking and passthrough work, and the permission prompts appear. It's a new package (`com.shivoostudios.jamsyncxr.quest`).
+- **Aura**: `tools\export_android.ps1 "Android XR"`, then install `build\android\AudioSyncMasterXR.apk`. The package is now `com.shivoostudios.jamsyncxr.xr`, so it installs next to an older `...audiosyncmaster.xr` build instead of replacing it; uninstall the old one.
+- Both build and are signed on music-machine; neither has run on a device since the OpenXR Vendors 5.2.0 update.
+
 ## Networking on the headset (M4 leftovers)
 6. **Audio link on Android**: AOO is built into the arm64 library (`tools/build_aoo.ps1 -Platform android`, then `tools/build.ps1 -Platform android`). Check that joining a session from the headset streams audio both ways.
 7. **Mic on Android**: uses Godot's microphone (`AudioStreamMicrophone` on a muted bus + `AudioEffectCapture` -> `JamAudioLink.push_input`, `audio/driver/enable_input.android=true`). Untested on a device: check the permission prompt, then latency; if it's poor, add native AAudio/Oboe input to `jamcore/src/net/audio_capture.cpp`.
@@ -23,7 +28,7 @@ is skipped because no headset is available.
 10. **Where the connection server runs**: `server/asm_server.py` (see `server/README.md`) needs a machine with a public address and UDP 47900 open (a small cloud VM is enough). Then test a real online session: host on one network, join by room code from another (a phone hotspot works as the second network). Strict NATs will need the relay (not built).
 
 ## XR milestone (M6), needs the headset to verify
-- XR scene with the Shivoo XR rig (`addons/shivoo_xr` submodule from `D:\Godot_Projects\ShivooXRPlugin`, plus godot-xr-tools 4.5.x and OpenXR Vendors 5.1.x copied from the template project).
+- XR scene with the Shivoo XR rig (`addons/shivoo_xr` submodule from `D:\Godot_Projects\ShivooXRPlugin`, plus godot-xr-tools 4.5.2 and OpenXR Vendors 5.2.0).
 - Panels in 3D: the flat panels rendered into SubViewports on movable XR panels, operated by fingertip/pinch (pattern from ChordMasterXR's XR controls).
 - Passthrough by default; VR stage toggle; measure frame rate with six instruments visible.
 - Hand-played instruments (drum pads you hit, a floating keyboard).
