@@ -38,7 +38,7 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
 ```
 - music-machine's PowerShell blocks script files, so run scripts with `-ExecutionPolicy Bypass`.
 - On a fresh checkout, import first (`Godot --headless --path . --import`) or the tests can't resolve class names.
-- Expect **88/88** GUT tests and **PASS** from the session test.
+- Expect **93/93** GUT tests and **PASS** from the session test.
 
 ## State of the project
 - **Done on Windows:**
@@ -88,6 +88,12 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
 - Feedback in the headset on the sideways knobs and labels, and installing the latest XR build, which has SynthKit and Prism. Ask the user to wake the headset. `tools\export_android.ps1 "Android XR"` (Galaxy XR, Aura) or `tools\export_android.ps1 Quest`, then `adb install -r -g`. See `docs/TODO-headset.md`, "First runs of the XR builds".
 - Where the connection server runs (`server/asm_server.py`, UDP 47900). A relay for strict NATs isn't built.
 - A buffer test with real sound cards on two machines. See `docs/TODO-headset.md`.
+
+## XR sizes (2026-11-27)
+- The panel, the instrument and the play table each have a `SizeControl` (`scripts/xr/size_control.gd`: [−] 100% [+] [↺], 10 % steps, 50-200 %), made of `XRButton`s (`scripts/xr/xr_button.gd`, poke or laser like `GrabHandle`). Saved as `xr_size_panel`, `xr_size_instrument`, `xr_size_play_table` in Settings.
+- Panel: `screen_size` changes (same pixels), moved so its bottom edge stays put. Instrument and play table: their node's scale; their size buttons are counter-scaled so they stay the same size.
+- `hand_player.gd` keeps real-world distances at any size (`_per_metre()`: press depth, fingertip radius, release, velocity, knob reach and travel). `GrabHandle` keeps the target's scale while it turns it to face you; the wrist reset keeps sizes.
+- Tests: `tests/test_size_control.gd`, two new tests in `test_hand_player.gd` (presses and knob travel at 60 %/200 %), and size checks in `tests/tools/xr_panel_check.gd`. Not yet tried in a headset.
 
 ## MusicInputKit as a shared submodule (2026-11-27)
 - MusicBeaconXR's `addons/music_input_kit` was split out with its history into github.com/sterlingy/MusicInputKit (private), cloned at `D:\MusicInputKit`. It's a submodule in both projects, like SynthKit.

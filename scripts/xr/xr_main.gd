@@ -200,6 +200,61 @@ func _build_handles() -> void:
 	move_play.length = 0.3
 	move_play.position = Vector3(0, -0.005, PlayTable.SIZE.z / 2.0 + 0.06)
 	play_table.add_child(move_play)
+	_build_size_controls()
+
+
+# ---- Sizes: [−] 100% [+] [↺] by each grab bar, saved in Settings
+
+var panel_size: SizeControl
+var instrument_size: SizeControl
+var play_table_size: SizeControl
+
+
+func _build_size_controls() -> void:
+	# The panel's: below its bottom-right corner, facing you like the panel.
+	panel_size = _size_control("PanelSize", "xr_size_panel", "Panel size", panel)
+	panel_size.changed.connect(_apply_panel_size)
+	# The instrument's and play table's: lying beside their grab bars, tilted up
+	# towards you. Children of what they size, but kept at their own size.
+	instrument_size = _size_control("InstrumentSize", "xr_size_instrument", "Instrument size", table)
+	instrument_size.position = Vector3(0.3, 0.0, 0.26)
+	instrument_size.changed.connect(_apply_instrument_size)
+	play_table_size = _size_control("PlayTableSize", "xr_size_play_table", "Play table size", play_table)
+	play_table_size.position = Vector3(0.48, 0.0, PlayTable.SIZE.z / 2.0 + 0.06)
+	play_table_size.changed.connect(_apply_play_table_size)
+	_apply_panel_size(panel_size.value)
+	_apply_instrument_size(instrument_size.value)
+	_apply_play_table_size(play_table_size.value)
+
+
+func _size_control(n: String, key: String, title: String, parent: Node3D) -> SizeControl:
+	var c := SizeControl.new()
+	c.name = n
+	c.setting = key
+	c.title = title
+	if parent != panel:
+		c.rotation_degrees.x = -60.0
+	parent.add_child(c)
+	return c
+
+
+## The panel grows and shrinks from its bottom edge, so it never sinks into the
+## instrument below it (the pixels stay the same: only the screen gets bigger).
+func _apply_panel_size(s: float) -> void:
+	var size := PANEL_SIZE * s
+	panel.set("screen_size", size)
+	panel.position = PANEL_POS + panel.transform.basis.y.normalized() * (PANEL_SIZE.y * (s - 1.0) / 2.0)
+	panel_size.position = Vector3(size.x / 2.0 - 0.13, -size.y / 2.0 - 0.04, 0.01)
+
+
+func _apply_instrument_size(s: float) -> void:
+	table.scale = Vector3.ONE * s
+	instrument_size.scale = Vector3.ONE / s
+
+
+func _apply_play_table_size(s: float) -> void:
+	play_table.scale = Vector3.ONE * s
+	play_table_size.scale = Vector3.ONE / s
 
 
 func _show_instrument(type: String) -> void:
@@ -256,8 +311,9 @@ func _index_tip(ctl: Node) -> Node3D:
 ## The wrist button: the instrument back on its spot below the panel, and both
 ## in front of where you're looking.
 func reset_position() -> void:
-	table.transform = Transform3D(Basis.IDENTITY, TABLE_POS)
-	play_table.transform = Transform3D(Basis(Vector3.UP, deg_to_rad(PLAY_TABLE_TURN)), PLAY_TABLE_POS)
+	# Places only: sizes stay as set (each has its own ↺).
+	table.transform = Transform3D(Basis.from_scale(table.scale), TABLE_POS)
+	play_table.transform = Transform3D(Basis(Vector3.UP, deg_to_rad(PLAY_TABLE_TURN)) * Basis.from_scale(play_table.scale), PLAY_TABLE_POS)
 	recenter()
 
 

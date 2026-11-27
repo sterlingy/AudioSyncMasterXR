@@ -164,3 +164,51 @@ func test_pinch_and_turn_a_knob() -> void:
 
 func model_labels(m: Node3D) -> int:
 	return m.find_children("*_label", "Label3D", true, false).size()
+
+
+## Moves a fingertip straight down in real metres onto `note`'s key: from 2 cm
+## above its top to `depth` past it (negative = through the top).
+func _press_world(m: Node3D, note: int, depth: float, id := "w", speed := 0.5) -> void:
+	var z := _zone(note)
+	var c: Vector3 = (z.min + z.max) * 0.5
+	var top: Vector3 = m.global_transform * Vector3(c.x, z.max.y, c.z)
+	for d in [0.02, 0.01, depth]:
+		t += 0.01 / speed
+		cur[id] = top + Vector3.UP * (HandPlayer.TIP_RADIUS + d)
+		hp.update_tips(cur, t)
+
+
+func test_a_bigger_instrument_plays_the_same_at_your_fingertip() -> void:
+	for s in [1.0, 2.0, 0.6]:
+		Midi.release_all()
+		cur.clear()
+		heard.clear()
+		var m := _load("Lumen")
+		m.scale = Vector3.ONE * s
+		hp.setup(m, "Lumen")
+		_press_world(m, 60, -0.003, "a%s" % s) # 3 mm through: not yet (press depth is 4 mm)
+		assert_false(Midi.held.has(60), "3 mm in doesn't play at %d%%" % roundi(s * 100))
+		_press_world(m, 62, -0.006, "b%s" % s, 0.5) # 6 mm: plays
+		assert_true(Midi.held.has(62), "6 mm in plays at %d%%" % roundi(s * 100))
+		if heard.size() > 0:
+			assert_between(heard[-1][1], 40, 127, "velocity from real hand speed")
+		hp.release_all()
+		m.free()
+
+
+func test_knob_travel_is_the_same_at_any_size() -> void:
+	var rig := InstrumentRig.new()
+	rig.instrument = "Undertow"
+	rig.local_input = false
+	add_child_autofree(rig)
+	hp.rig = rig
+	var m := _load("Undertow")
+	m.scale = Vector3.ONE * 2.0
+	hp.setup(m, "Undertow")
+	var k: Dictionary = hp.knobs[0]
+	var at: Vector3 = m.global_transform * k.center
+	hp.update_pinches({1: at})
+	var right := m.global_basis.x.normalized()
+	hp.update_pinches({1: at + right * (HandPlayer.KNOB_TRAVEL + 0.01)}) # the full travel, in real metres
+	assert_almost_eq(rig.synth.get_param(k.id), float(k.max), 0.01 * absf(float(k.max)), "full range over the same hand movement at 200%")
+	hp.update_pinches({})

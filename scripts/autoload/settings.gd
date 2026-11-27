@@ -25,6 +25,9 @@ const DEFAULTS := {
 	"server": "", # connection server host[:port] for online sessions
 	"approve_tempo": true, # host: ask before applying a player's tempo change
 	"play_table": true, # XR: show the play table (MusicInputKit objects) on your right
+	"xr_size_panel": 1.0, # XR sizes (1 = normal), set with the size buttons by each grab bar
+	"xr_size_instrument": 1.0,
+	"xr_size_play_table": 1.0,
 }
 
 var _cfg := ConfigFile.new()

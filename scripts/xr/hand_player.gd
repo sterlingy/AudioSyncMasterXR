@@ -191,6 +191,7 @@ func update_pinches(pinches: Dictionary) -> void:
 	if model == null or rig == null:
 		return
 	var inv := model.global_transform.affine_inverse()
+	var pm := _per_metre() # reach and travel stay the same at your hand at any size
 	for side in _held_knob.keys():
 		if not pinches.has(side):
 			var k: Dictionary = _held_knob[side].knob
@@ -201,14 +202,14 @@ func update_pinches(pinches: Dictionary) -> void:
 		if _held_knob.has(side):
 			var h: Dictionary = _held_knob[side]
 			var k: Dictionary = h.knob
-			var t := clampf(float(h.t0) + (p.x - float(h.x0)) / KNOB_TRAVEL, 0.0, 1.0)
+			var t := clampf(float(h.t0) + (p.x - float(h.x0)) / (KNOB_TRAVEL * pm), 0.0, 1.0)
 			var v := _from_t(k, t)
 			rig.set_param(k.id, v)
 			_show_knob(k, t)
 			_set_label(k, v, true)
 			continue
 		var best := -1
-		var best_d := KNOB_REACH
+		var best_d := KNOB_REACH * pm
 		for i in knobs.size():
 			var d: float = p.distance_to(knobs[i].center)
 			if d < best_d:
@@ -341,20 +342,24 @@ func _world_tip(p: Vector3) -> Vector3:
 ## tips: id -> world position. Plays and releases zones as tips cross their tops.
 func update_tips(tips: Dictionary, t: float) -> void:
 	var inv := model.global_transform.affine_inverse()
+	# Distances below are real ones at your fingertip (metres), whatever size the
+	# instrument is shown at: k turns metres into the model's own units.
+	var k := _per_metre()
 	for id in _tips.keys():
 		if not tips.has(id):
 			_lift(_tips[id])
 			_tips.erase(id)
 	for id in tips:
 		var p: Vector3 = inv * (tips[id] as Vector3)
-		p.y -= TIP_RADIUS
+		p.y -= TIP_RADIUS * k
 		var st: Dictionary = _tips.get(id, {"pos": p, "zone": -1, "t": t})
 		var dt := maxf(t - float(st.t), 1e-3)
-		var speed := (float(st.pos.y) - p.y) / dt # downward speed
+		var speed := (float(st.pos.y) - p.y) / dt / k # downward speed, m/s
 		if st.zone >= 0:
 			var z: Dictionary = zones[st.zone]
-			var inside: bool = p.x > z.min.x - 0.004 and p.x < z.max.x + 0.004 and p.z > z.min.z - 0.004 and p.z < z.max.z + 0.004
-			if p.y > z.max.y + RELEASE_ABOVE or not inside:
+			var m := 0.004 * k
+			var inside: bool = p.x > z.min.x - m and p.x < z.max.x + m and p.z > z.min.z - m and p.z < z.max.z + m
+			if p.y > z.max.y + RELEASE_ABOVE * k or not inside:
 				_lift(st)
 		if st.zone < 0:
 			for i in zones.size():
@@ -363,7 +368,7 @@ func update_tips(tips: Dictionary, t: float) -> void:
 					continue
 				var top: float = z.max.y
 				# Pressed: crossed the top going down (not a hand resting below it).
-				if p.y < top - PRESS_DEPTH and p.y > top - MAX_FROM_BELOW and float(st.pos.y) >= top - PRESS_DEPTH:
+				if p.y < top - PRESS_DEPTH * k and p.y > top - MAX_FROM_BELOW * k and float(st.pos.y) >= top - PRESS_DEPTH * k:
 					if _held_by_other(i, id):
 						break
 					st.zone = i
@@ -393,6 +398,13 @@ func _lift(st: Dictionary) -> void:
 	if is_instance_valid(z.node):
 		(z.node as Node3D).position = z.rest
 	st.zone = -1
+
+
+## Model units per real metre: 1 at normal size, 0.5 when the instrument is shown
+## twice as big (scaled with the size buttons).
+func _per_metre() -> float:
+	var s := model.global_basis.get_scale().x if model else 1.0
+	return 1.0 / maxf(s, 0.01)
 
 
 ## Number of zones (for tests and the status line).

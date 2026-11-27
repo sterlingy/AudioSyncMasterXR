@@ -111,6 +111,42 @@ func _run() -> void:
 	xr.toggle_play_table()
 	_check(pt.visible != was and pt.hands.enabled == pt.visible, "Play table button hides and shows it")
 	xr.toggle_play_table()
+
+	# Sizes: + on each grows just that one; ↺ resets just that one.
+	var saved := {}
+	var settings: Node = root.get_node("/root/Settings") # by path: -s scripts compile before the autoloads exist
+	for k in ["xr_size_panel", "xr_size_instrument", "xr_size_play_table"]:
+		saved[k] = settings.get_value(k)
+	for c in [xr.panel_size, xr.instrument_size, xr.play_table_size]:
+		c.set_size(1.0)
+	var press := func(ctl: Node, n: String):
+		var b: Node3D = ctl.get_node(n)
+		b.pointer_event.emit(XRToolsPointerEvent.new(XRToolsPointerEvent.Type.PRESSED, pointer, b, b.global_position, b.global_position))
+	var bottom := func() -> Vector3:
+		var sz: Vector2 = xr.panel.get("screen_size")
+		return xr.panel.global_transform * Vector3(0, -sz.y / 2.0, 0)
+	var bottom_before: Vector3 = bottom.call()
+	press.call(xr.panel_size, "Bigger")
+	press.call(xr.panel_size, "Bigger")
+	var sz2: Vector2 = xr.panel.get("screen_size")
+	_check(sz2.is_equal_approx(Vector2(1.2, 0.675) * 1.2), "panel + makes the screen bigger (%s)" % sz2)
+	_check((bottom.call() as Vector3).distance_to(bottom_before) < 0.002, "panel grows upward from its bottom edge")
+	_check(is_equal_approx(xr.table.scale.x, 1.0) and is_equal_approx(pt.scale.x, 1.0), "panel size leaves the tables alone")
+	press.call(xr.instrument_size, "Bigger")
+	_check(is_equal_approx(xr.table.scale.x, 1.1), "instrument + scales the instrument (%.2f)" % xr.table.scale.x)
+	_check(is_equal_approx(xr.instrument_size.global_basis.get_scale().x, 1.0), "its size buttons stay the same size")
+	press.call(xr.play_table_size, "Smaller")
+	_check(is_equal_approx(pt.scale.x, 0.9), "play table − shrinks the play table (%.2f)" % pt.scale.x)
+	xr.reset_position()
+	_check(is_equal_approx(xr.table.scale.x, 1.1) and is_equal_approx(pt.scale.x, 0.9), "the wrist reset keeps sizes")
+	press.call(xr.instrument_size, "Reset")
+	_check(is_equal_approx(xr.table.scale.x, 1.0) and is_equal_approx(pt.scale.x, 0.9), "instrument ↺ resets only the instrument")
+	press.call(xr.panel_size, "Reset")
+	_check((xr.panel.get("screen_size") as Vector2).is_equal_approx(Vector2(1.2, 0.675)) and is_equal_approx(pt.scale.x, 0.9), "panel ↺ resets only the panel")
+	press.call(xr.play_table_size, "Reset")
+	_check(is_equal_approx(pt.scale.x, 1.0), "play table ↺ resets the play table")
+	for k in saved:
+		settings.set_value(k, saved[k])
 	print("PASS" if fails == 0 else "FAILED (%d)" % fails)
 	quit(0 if fails == 0 else 1)
 

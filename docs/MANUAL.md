@@ -312,7 +312,8 @@ The headset version shows your real room (passthrough). The whole app floats in 
 | Turn a knob | Pinch next to it, then move your hand **left or right** to turn it down or up. A label just below each knob shows its name and value. |
 | Move the panel and instrument | Grab the bar under the panel and move it. |
 | Move only the instrument | Grab the bar at the front of the table. |
-| Bring everything back in front of you | Look at the **underside of your wrist** (palm towards you): a button appears there; press it. Or press **Recenter** in the panel's top bar. |
+| Make the panel, your instrument or the play table bigger or smaller | Use the **− 100% +** buttons next to it: below the panel's bottom-right corner, and beside the grab bar of each table. Each press is 10 %, from 50 % to 200 %. **↺** puts just that one back to normal size. Sizes are remembered. The panel grows upward, so it never covers your instrument. Your instrument plays the same at any size: a key still needs the same small press of your finger. |
+| Bring everything back in front of you | Look at the **underside of your wrist** (palm towards you): a button appears there; press it. Or press **Recenter** in the panel's top bar. Sizes stay as you set them. |
 | Play the play table | Turn to your right. See below. |
 
 Moving around is by walking: there is no teleport.

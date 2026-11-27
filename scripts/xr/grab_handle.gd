@@ -87,7 +87,8 @@ func _process(_delta: float) -> void:
 		var to_me := face.global_position - pos
 		to_me.y = 0.0
 		if to_me.length() > 0.2:
-			basis = Basis.looking_at(-to_me.normalized(), Vector3.UP)
+			# Turn to face you, keeping the target's size (set with its size buttons).
+			basis = Basis.looking_at(-to_me.normalized(), Vector3.UP) * Basis.from_scale(target.global_basis.get_scale())
 			# Keep the offset turning with the target, so it doesn't drift sideways.
 	target.global_transform = Transform3D(basis, pos)
 	moved.emit()

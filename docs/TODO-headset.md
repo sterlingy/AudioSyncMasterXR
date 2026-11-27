@@ -22,6 +22,9 @@ is skipped because no headset is available.
 - Front row: twist the Tone dial, slide Space, pull the Bend lever (springs back), XY pad, flick the flywheel, tilt the cube. Hear them on Prism, Lumen and Undertow.
 - In a session: the other player hears play-table notes, bends and knob moves.
 
+## Sizes in the headset (2026-11-27)
+- Press **+** / **−** / **↺** beside the panel, the instrument and the play table, with a fingertip and with the laser. Check the buttons are easy to hit (they're 4.5 x 3.4 cm), the panel grows upward without covering the instrument, and keys still play with a light press at 50 % and 200 %.
+
 ## Networking on the headset (M4 leftovers)
 6. **Audio link on Android**: AOO is built into the arm64 library (`tools/build_aoo.ps1 -Platform android`, then `tools/build.ps1 -Platform android`). Check that joining a session from the headset streams audio both ways.
 7. **Mic on Android**: uses Godot's microphone (`AudioStreamMicrophone` on a muted bus + `AudioEffectCapture` -> `JamAudioLink.push_input`, `audio/driver/enable_input.android=true`). Untested on a device: check the permission prompt, then latency; if it's poor, add native AAudio/Oboe input to `jamcore/src/net/audio_capture.cpp`.
