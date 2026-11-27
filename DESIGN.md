@@ -168,6 +168,7 @@ Built on Windows desktop first; headset steps run once a headset is connected. B
 9. **M9: Interval mode, Android flat app, SFU for larger groups.**
 
 ## Decisions log
+- 2026-11-27 (play table): MusicInputKit is XR/AR only here: a play table to your right in the XR scene. Every object plays the local player's one instrument (the kit's parts are ignored), through `KitBridge`, which feeds the same inputs as the on-screen keys and a MIDI keyboard. Starting values of the objects are never sent, so entering XR doesn't change your sound.
 - 2026-11-27 (MusicInputKit): MusicBeaconXR's playable 3D objects became their own repo (github.com/sterlingy/MusicInputKit, private) and a submodule at `addons/music_input_kit` in both projects, like SynthKit. Here it's available but not wired in yet.
 - 2026-11-27 (name): The app is called JamSyncXR (window, Android labels, APK and exe names, UI, manual). The repo stays `AudioSyncMasterXR`. Desktop user data moves with the name; `UserDataMove` copies the old `AudioSyncMaster` folder once. Old `session.json` files still load. The app has its own icon (`assets/icon`).
 - 2026-11-26 (headsets): One project and one XR scene for every headset, all OpenXR. Each headset family gets its own APK because each expects its own manifest and loader: "Android XR" (Galaxy XR, Aura) and "Quest" (Meta loader; no Meta SDK). Packages `com.shivoostudios.jamsyncxr[.xr|.quest]`. OpenXR Vendors 5.2.0 and its Android binaries are committed.

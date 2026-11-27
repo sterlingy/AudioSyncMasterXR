@@ -38,7 +38,7 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
 ```
 - music-machine's PowerShell blocks script files, so run scripts with `-ExecutionPolicy Bypass`.
 - On a fresh checkout, import first (`Godot --headless --path . --import`) or the tests can't resolve class names.
-- Expect **81/81** GUT tests and **PASS** from the session test.
+- Expect **88/88** GUT tests and **PASS** from the session test.
 
 ## State of the project
 - **Done on Windows:**
@@ -91,7 +91,12 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
 
 ## MusicInputKit as a shared submodule (2026-11-27)
 - MusicBeaconXR's `addons/music_input_kit` was split out with its history into github.com/sterlingy/MusicInputKit (private), cloned at `D:\MusicInputKit`. It's a submodule in both projects, like SynthKit.
-- **Here:** added at `addons/music_input_kit` (tracks `main`; `tools/update_music_input_kit.ps1`). Not wired into the app: `hand_player.gd` still plays the 3D instruments. `tests/test_music_input_kit.gd` checks the kit loads and sends notes. Using it would mean a bridge from `MusicInput`'s `note_on`/`note_off`/`control` to `Midi.inject_*` and the rig's parameters, like MusicBeaconXR's `scripts/play/synth_bridge.gd`.
+- **Here:** added at `addons/music_input_kit` (tracks `main`; `tools/update_music_input_kit.ps1`).
+- **XR play table (2026-11-27):** `scripts/xr/play_table.gd` puts all 14 kit objects on a 2 x 1 m table to your right in `xr_main` (turned to face you, grab bar at its front, **Play table** top button, `Settings.play_table`). XR only, as the user wants.
+  - `scripts/xr/kit_bridge.gd` plays them on `Session.local_rig`, whatever the kit part: notes via `Midi.inject_*` (two hands on one note handled), bends via `Midi.pitch_bend` scaled by the instrument's bend range, knob moves via `rig.set_param` with the kit's generic names matched per instrument (`ALIASES`: e.g. `filter.cutoff` -> `f1.cutoff` on Prism, `reverb.mix` -> `send.space`). So looping, recording, quantize and the session work unchanged.
+  - The bridge connects after the objects exist, so their starting values never overwrite your preset (MusicBeaconXR calls `kit.resend()`; this app doesn't).
+  - The kit's hands are the XR rig's LeftHand / RightHand controllers (touch, grip to hold, trigger to play from afar). Fingertip play on the instrument model (`hand_player.gd`) still works alongside.
+  - Tests: `tests/test_play_table.gd` (bridge, aliases, bends, a simulated hand hitting a chime bar, hidden table silent); `tests/tools/xr_panel_check.gd` checks the table, both hands, its handle and the button in the full XR scene. Not yet tried in a headset.
 - **MusicBeaconXR:** done in a separate worktree, `D:\MusicBeaconXR-mik`, on branch `music-input-kit-submodule` (commit `b3479ee`, from `origin/main` `3be5fb4`), so the checkout at `D:\MusicBeaconXR` wasn't touched. Its Godot checks and 116 web tests pass. After it reaches `main`, `D:\MusicBeaconXR` needs `git submodule update --init` (its `addons\music_input_kit` folder becomes the submodule).
 - MusicBeaconXR pins SynthKit `5e78138` ("Windows release build with the Sampler"), newer than this project's `a37098c`.
 

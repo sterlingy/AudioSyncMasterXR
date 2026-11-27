@@ -313,10 +313,29 @@ The headset version shows your real room (passthrough). The whole app floats in 
 | Move the panel and instrument | Grab the bar under the panel and move it. |
 | Move only the instrument | Grab the bar at the front of the table. |
 | Bring everything back in front of you | Look at the **underside of your wrist** (palm towards you): a button appears there; press it. Or press **Recenter** in the panel's top bar. |
+| Play the play table | Turn to your right. See below. |
 
 Moving around is by walking: there is no teleport.
 
-> The headset version is an early first pass, tested on Samsung Galaxy XR.
+### The play table
+
+On your right is a second table of objects you play with your hands. Everything on it plays **your instrument**, so the others hear it, and the looper and recording pick it up like any other playing. Turn it on or off with **Play table** in the panel's top bar.
+
+| Object | Play it |
+|---|---|
+| Chime bars | Strike a bar; sweep across for a run. Hit harder for louder. |
+| Light strings | Touch a string to pluck, sweep to strum, pull to bend. |
+| Theremin orb | Move your hand inside it: left to right is pitch, height opens the tone. |
+| Pitch ribbon | Press and slide for a glide; wiggle for vibrato. |
+| Chord blocks | Touch a block to hold its chord; lift your hand to brighten it. |
+| Drum pads | Hit a pad. Pick Pulsar as your instrument for drum sounds. |
+| Music box | Tap to place pegs, flick to spin it. |
+| Tone dial, Space and Bend faders, Filter pad, Wobble flywheel, Tilt cube (front row) | Shape the sound: grip and twist, slide, or tilt. Bend springs back when you let go. |
+| Scale buttons | LOCK keeps the bars, strings, blocks, orb and ribbon in key; KEY and SCALE pick which. |
+
+Reach in and touch or hit an object to play it; grip to hold on (to twist the dial or tilt the cube); point and pull the trigger to play one that's out of reach. Grab the bar at the front of the play table to move it. Shaping objects change the knobs your instrument has; one it doesn't have (reverb on Undertow, say) does nothing.
+
+> The headset version is an early first pass, tested on Samsung Galaxy XR. The play table is new and not yet tested in a headset.
 
 ---
 

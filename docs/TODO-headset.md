@@ -16,6 +16,12 @@ is skipped because no headset is available.
 - **Aura**: `tools\export_android.ps1 "Android XR"`, then install `build\android\JamSyncXR-AndroidXR.apk`. The package is now `com.shivoostudios.jamsyncxr.xr`, so it installs next to an older `...audiosyncmaster.xr` build instead of replacing it; uninstall the old one.
 - Both build and are signed on music-machine; neither has run on a device since the OpenXR Vendors 5.2.0 update.
 
+## Play table (MusicInputKit) in the headset (2026-11-27)
+- Turn right: is the play table at a good height and distance? Hit the chime bars, pluck the strings, play the orb and ribbon; check velocity and that held notes end.
+- Hand tracking vs controllers: touching uses the XR rig's LeftHand/RightHand controller poses; check the touch point (the small orange dot) sits at your fingertips with hand tracking, and that pinch works as the trigger for playing from afar. Tune `PlayXRHands.tip_offset` if not.
+- Front row: twist the Tone dial, slide Space, pull the Bend lever (springs back), XY pad, flick the flywheel, tilt the cube. Hear them on Prism, Lumen and Undertow.
+- In a session: the other player hears play-table notes, bends and knob moves.
+
 ## Networking on the headset (M4 leftovers)
 6. **Audio link on Android**: AOO is built into the arm64 library (`tools/build_aoo.ps1 -Platform android`, then `tools/build.ps1 -Platform android`). Check that joining a session from the headset streams audio both ways.
 7. **Mic on Android**: uses Godot's microphone (`AudioStreamMicrophone` on a muted bus + `AudioEffectCapture` -> `JamAudioLink.push_input`, `audio/driver/enable_input.android=true`). Untested on a device: check the permission prompt, then latency; if it's poor, add native AAudio/Oboe input to `jamcore/src/net/audio_capture.cpp`.

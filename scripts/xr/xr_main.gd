@@ -16,6 +16,10 @@ const PANEL_TILT := -12.0 # degrees, top leans away
 const TABLE_POS := Vector3(0, -0.58, -0.4)
 const DEFAULT_HEAD := Vector3(0, 1.45, 0) # before tracking starts (and flat play)
 const SEAT_RADIUS := 1.6
+# The play table (MusicInputKit objects): on your right, turned to face you
+# (its front edge, the shaping row, toward you), clear of the instrument table.
+const PLAY_TABLE_POS := Vector3(1.05, -0.62, 0.35)
+const PLAY_TABLE_TURN := -90.0 # degrees about Y
 
 var player: XROrigin3D
 var start_xr: Node
@@ -24,6 +28,7 @@ var app: Control # the flat app (main.tscn) inside the panel
 var table: Node3D
 var workspace: Node3D # panel + table, moved as one by recenter()
 var hand_player: HandPlayer
+var play_table: PlayTable
 var _t_fps := 5.0
 var _model: Node3D
 var _avatars := {} # player id -> {seat, avatar, model}
@@ -49,6 +54,7 @@ func _ready() -> void:
 	add_child(workspace)
 	_build_panel()
 	_build_table()
+	_build_play_table()
 	_build_handles()
 	start_xr.connect("xr_started", func(): get_tree().create_timer(0.6).timeout.connect(recenter))
 	var openxr := XRServer.find_interface("OpenXR")
@@ -56,6 +62,7 @@ func _ready() -> void:
 		openxr.connect("pose_recentered", recenter) # the headset's own recenter
 	if app and app.has_method("add_top_button"):
 		app.add_top_button("Recenter", "Move the panel and your instrument in front of you", recenter)
+		app.add_top_button("Play table", "Show or hide the table of objects you play with your hands, on your right", toggle_play_table)
 	_add_hand_tools.call_deferred()
 	var wrist := WristButton.new()
 	wrist.name = "WristReset"
@@ -153,8 +160,24 @@ func _build_table() -> void:
 		Session.local_rig.instrument_changed.connect(_show_instrument)
 
 
-## Grab bars: under the panel (moves the panel and instrument together) and
-## at the front of the table (moves just the instrument).
+## The play table: MusicInputKit's objects, heard on your instrument (KitBridge).
+func _build_play_table() -> void:
+	play_table = PlayTable.new()
+	play_table.name = "PlayTable"
+	play_table.transform = Transform3D(Basis(Vector3.UP, deg_to_rad(PLAY_TABLE_TURN)), PLAY_TABLE_POS)
+	workspace.add_child(play_table)
+	play_table.set_shown(bool(Settings.get_value("play_table")))
+
+
+func toggle_play_table() -> void:
+	var on := not play_table.visible
+	play_table.set_shown(on)
+	Settings.set_value("play_table", on)
+
+
+## Grab bars: under the panel (moves the panel and instrument together), at
+## the front of the table (moves just the instrument) and at the front of the
+## play table.
 func _build_handles() -> void:
 	var cam := player.get_node_or_null("Camera") as Node3D
 	var move_all := GrabHandle.new()
@@ -170,6 +193,13 @@ func _build_handles() -> void:
 	move_inst.length = 0.18
 	move_inst.position = Vector3(0, -0.005, 0.26)
 	table.add_child(move_inst)
+	var move_play := GrabHandle.new()
+	move_play.name = "PlayTableHandle"
+	move_play.target = play_table
+	move_play.face = cam
+	move_play.length = 0.3
+	move_play.position = Vector3(0, -0.005, PlayTable.SIZE.z / 2.0 + 0.06)
+	play_table.add_child(move_play)
 
 
 func _show_instrument(type: String) -> void:
@@ -181,14 +211,15 @@ func _show_instrument(type: String) -> void:
 	hand_player.setup(_model, type)
 
 
-## Fingertip pokes on both hands (touch the panel) and a laser on each hand
-## (point and pinch/trigger from a distance). Hands are created by the rig at
-## runtime, so this runs deferred.
+## Fingertip pokes on both hands (touch the panel), a laser on each hand
+## (point and pinch/trigger from a distance), and the hands for the play table.
+## Hands are created by the rig at runtime, so this runs deferred.
 func _add_hand_tools() -> void:
 	for side in ["LeftHand", "RightHand"]:
 		var ctl := player.get_node_or_null(side) as XRController3D
 		if ctl == null:
 			continue
+		play_table.use_controllers([ctl])
 		# No teleporting: you play seated or standing in place.
 		var teleport := ctl.get_node_or_null("FunctionTeleport")
 		if teleport:
@@ -226,6 +257,7 @@ func _index_tip(ctl: Node) -> Node3D:
 ## in front of where you're looking.
 func reset_position() -> void:
 	table.transform = Transform3D(Basis.IDENTITY, TABLE_POS)
+	play_table.transform = Transform3D(Basis(Vector3.UP, deg_to_rad(PLAY_TABLE_TURN)), PLAY_TABLE_POS)
 	recenter()
 
 

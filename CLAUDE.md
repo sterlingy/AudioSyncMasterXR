@@ -18,7 +18,7 @@ This project, **JamSyncXR** (called AudioSyncMaster until 2026-11-27; the repo a
 
 ## Layout
 - `addons/synthkit/` — the shared instruments: the SynthKit submodule (clone with `--recurse-submodules`, or `git submodule update --init`).
-- `addons/music_input_kit/` — MusicInputKit, a submodule of github.com/sterlingy/MusicInputKit (private), shared with MusicBeaconXR: 3D objects you play (bars, strings, theremin orb, ribbon, pads, chord blocks, dials, faders...) that send notes and knob moves to a hub. Pure GDScript, no SynthKit inside. Not wired into this app yet. Change it in its own clone (`D:\MusicInputKit` on music-machine), push, then `tools/update_music_input_kit.ps1` here; never edit it in place.
+- `addons/music_input_kit/` — MusicInputKit, a submodule of github.com/sterlingy/MusicInputKit (private), shared with MusicBeaconXR: 3D objects you play (bars, strings, theremin orb, ribbon, pads, chord blocks, dials, faders...) that send notes and knob moves to a hub. Pure GDScript, no SynthKit inside. Used by the XR play table (`scripts/xr/play_table.gd`); `scripts/xr/kit_bridge.gd` is the only place it meets the app (every object plays `Session.local_rig` through `Midi.inject_*`, `Midi.pitch_bend` and `rig.set_param`). Change it in its own clone (`D:\MusicInputKit` on music-machine), push, then `tools/update_music_input_kit.ps1` here; never edit it in place.
 - `addons/` also: shivoo_xr (copied from ShivooXRPlugin, not a submodule: git stays local), godot-xr-tools, godotopenxrvendors, chordmaster_midi (Android MIDI plugin from ChordMasterXR), gut.
 - `scenes/`, `scripts/` (app: sessions, looper, recording, XR, UI shell), `tests/` (GUT), `server/` (connection server), `assets/instruments/` (3D models).
 

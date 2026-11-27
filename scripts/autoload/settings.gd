@@ -24,6 +24,7 @@ const DEFAULTS := {
 	"instrument_audio": false, # send my instrument as audio instead of notes
 	"server": "", # connection server host[:port] for online sessions
 	"approve_tempo": true, # host: ask before applying a player's tempo change
+	"play_table": true, # XR: show the play table (MusicInputKit objects) on your right
 }
 
 var _cfg := ConfigFile.new()

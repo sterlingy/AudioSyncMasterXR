@@ -18,6 +18,7 @@ Godot 4.7.2 (GL Compatibility). The instruments come from **SynthKit** (`D:\Godo
 - **Since M5:** **Tap** tempo and a click-volume slider; players' tempo changes reach the host as suggestions (Accept/Ignore). **Interval mode** (Jam tab → Timing) plays everyone else exactly 1 or 2 bars late so far-away players land in time; the Jam tab suggests it when someone reaches you more than 40 ms late. **Send instrument as audio** streams your instrument instead of notes. Avatars' head/hand poses are sent and shown delayed to match each player's sound (for XR). **MIDI…** dialog with Bluetooth MIDI scan, input channel and the Wi-Fi relay. The UI wraps and scrolls on small screens, the on-screen keys take multi-touch chords, and phones scale the UI by screen density.
 - **M7 3D instruments: first pass.** Seven stylized models made in Blender (`assets/instruments/*.glb`, source `.blend` alongside); `scenes/instrument_gallery.tscn` shows them. ![3D instruments](docs/images/instruments_3d.png)
 - **M8 online sessions: built, waiting for a server.** `server/asm_server.py` gives the host a room code; others press **Join online** and type it. It only introduces players and opens direct paths through home routers; see `server/README.md`. Tested through a local server; a real test over the internet needs the server on a public machine. Strict NATs will need a relay (not built).
+- **XR play table:** MusicInputKit's objects (chime bars, light strings, theremin orb, pitch ribbon, chord blocks, drum pads, music box, and dials/faders/XY pad/flywheel/tilt cube to shape the sound) on a table to your right, played with your hands. They play your instrument through `scripts/xr/kit_bridge.gd`: notes via `Midi.inject_*`, bends via `Midi.pitch_bend`, knob moves onto the instrument's own parameters, so looping, recording and sessions work unchanged. XR only; **Play table** in the panel shows or hides it. Not yet tried in a headset.
 - **Android:** arm64 engine builds with AOO. Three Android builds, all with the MIDI plugin. Mic input uses Godot's microphone there.
 
   | Preset | For | APK | Package |
@@ -61,7 +62,7 @@ Two instances on one PC: `godot --path . -- --host --name=A` and `godot --path .
    ```powershell
    git submodule update --init
    ```
-   `tools\update_synthkit.ps1` moves to SynthKit's latest version. The same `git submodule update --init` also fetches MusicInputKit (`addons/music_input_kit`: playable 3D objects shared with MusicBeaconXR, not wired into the app yet); `tools\update_music_input_kit.ps1` moves it to its latest version.
+   `tools\update_synthkit.ps1` moves to SynthKit's latest version. The same `git submodule update --init` also fetches MusicInputKit (`addons/music_input_kit`: playable 3D objects shared with MusicBeaconXR, used by the XR play table); `tools\update_music_input_kit.ps1` moves it to its latest version.
 2. Open the project in Godot 4.7.2 and press F5, or run it from the command line.
 
 Playing: MIDI keyboard/controller, or the computer keyboard (A–L white keys, W E T Y U O P black keys, Z/X octave, C/V velocity), or click the on-screen keys. Right-click any knob → **MIDI Learn**, then move a controller knob.

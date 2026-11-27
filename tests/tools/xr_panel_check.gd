@@ -92,6 +92,25 @@ func _run() -> void:
 	th.pointer_event.emit(XRToolsPointerEvent.new(XRToolsPointerEvent.Type.RELEASED, pointer, th, pointer.global_position, pointer.global_position))
 	_check(xr.panel.global_position.is_equal_approx(panel_at) and xr.table.global_position.distance_to(table_at + Vector3(0, 0.05, 0.1)) < 0.01,
 		"instrument handle moves just the instrument")
+
+	# The play table: built, both hands hooked up, follows its handle, toggles.
+	var pt: Node3D = xr.play_table # untyped: -s scripts compile before the autoloads exist
+	_check(pt != null and pt.objects.size() == 14, "play table with all 14 kit objects")
+	_check(pt.controllers.size() == 2, "both hands play the play table (%d)" % pt.controllers.size())
+	var top_btn := app.find_children("*", "Button", true, false).filter(func(b): return b.text == "Play table")
+	_check(top_btn.size() == 1, "Play table button in the panel")
+	var ph: GrabHandle = pt.get_node("PlayTableHandle")
+	var pt_at: Vector3 = pt.global_position
+	pointer.global_position = ph.global_position
+	ph.pointer_event.emit(XRToolsPointerEvent.new(XRToolsPointerEvent.Type.PRESSED, pointer, ph, ph.global_position, ph.global_position))
+	pointer.global_position += Vector3(0, 0.05, 0.1)
+	await process_frame
+	ph.pointer_event.emit(XRToolsPointerEvent.new(XRToolsPointerEvent.Type.RELEASED, pointer, ph, pointer.global_position, pointer.global_position))
+	_check(pt.global_position.distance_to(pt_at + Vector3(0, 0.05, 0.1)) < 0.01, "play table handle moves the play table")
+	var was: bool = pt.visible
+	xr.toggle_play_table()
+	_check(pt.visible != was and pt.hands.enabled == pt.visible, "Play table button hides and shows it")
+	xr.toggle_play_table()
 	print("PASS" if fails == 0 else "FAILED (%d)" % fails)
 	quit(0 if fails == 0 else 1)
 
