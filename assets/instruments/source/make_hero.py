@@ -1,10 +1,13 @@
-import bpy, math, sys, random
+# Renders the hero image (docs/images/hero_1920x1080.png), then add_title.py adds the text.
+#   blender -b --python assets/instruments/source/make_hero.py -- [final] <out.png>
+# Without "final": a half-size, low-sample preview.
+import bpy, math, os, sys, random
 from mathutils import Vector
 
 argv = sys.argv[sys.argv.index("--") + 1:] if "--" in sys.argv else []
 PREVIEW = "final" not in argv
 OUT = argv[-1]
-SRC = r"D:\Godot_Projects\AudioSyncMaster\assets\instruments\source\instruments.blend"
+SRC = os.path.join(os.path.dirname(os.path.abspath(__file__)), "instruments.blend")
 
 sc = bpy.data.scenes.new("Hero")
 bpy.context.window.scene = sc
@@ -12,9 +15,10 @@ for s in list(bpy.data.scenes):
     if s != sc:
         bpy.data.scenes.remove(s)
 
-NAMES = ["Driftwood", "Undertow", "Lumen", "Pulsar", "Comet", "Tangle"]
+NAMES = ["Driftwood", "Undertow", "Prism", "Lumen", "Pulsar", "Comet", "Tangle"]
 COL_MAT = {"Pulsar": "Pulsar_Orange", "Undertow": "Undertow_Teal", "Comet": "Comet_Pink",
-           "Lumen": "Lumen_Gold", "Driftwood": "Driftwood_Green", "Tangle": "Tangle_Violet"}
+           "Lumen": "Lumen_Gold", "Driftwood": "Driftwood_Green", "Tangle": "Tangle_Violet",
+           "Prism": "Prism_Blue"}
 
 
 def mat_color(name):
@@ -64,8 +68,10 @@ with bpy.data.libraries.load(SRC, link=False) as (src, dst):
     dst.collections = [n for n in src.collections if n in NAMES]
 colors = {n: mat_color(COL_MAT[n]) for n in NAMES}
 
-R = 1.6
-ANG = [-115, -69, -23, 23, 69, 115]
+R = 1.95
+ORB_Z = 1.05  # the shared clock: low enough that the middle player shows above it
+# Seven seats in an arc facing the camera, the middle one behind the clock orb
+ANG = [-123, -82, -41, 0, 41, 82, 123]
 
 
 def obj(name, mesh_fn, mat, loc=(0, 0, 0), parent=None):
@@ -167,6 +173,8 @@ for n, a in zip(NAMES, ANG):
         sc.collection.objects.link(ao)
         ao.parent = root
         ac.materials.append(bm)
+    if a == 0:
+        continue  # the middle player sits right behind the clock; its link would run down its body
     # link from the player's head to the shared clock
     cu = bpy.data.curves.new(n + "_Link", "CURVE")
     cu.dimensions = "3D"
@@ -177,7 +185,7 @@ for n, a in zip(NAMES, ANG):
     sp.bezier_points.add(1)
     rr = R + 0.5
     hp = Vector((rr * math.sin(phi), rr * math.cos(phi), 1.45))
-    cp = Vector((0, 0, 1.55))
+    cp = Vector((0, 0, ORB_Z))
     p0, p1 = sp.bezier_points
     p0.co = hp + Vector((0, 0, 0.12))
     p0.handle_left = p0.co
@@ -190,10 +198,10 @@ for n, a in zip(NAMES, ANG):
     cu.materials.append(emis(n + "_LinkGlow", col, 7))
 
 # center: the shared clock
-orb = obj("Orb", lambda: bpy.ops.mesh.primitive_uv_sphere_add(radius=0.09, segments=48, ring_count=24), emis("Orb", (0.75, 0.9, 1, 1), 25), (0, 0, 1.55))
+orb = obj("Orb", lambda: bpy.ops.mesh.primitive_uv_sphere_add(radius=0.09, segments=48, ring_count=24), emis("Orb", (0.75, 0.9, 1, 1), 25), (0, 0, ORB_Z))
 smooth(orb)
 for k, (rad, tilt, st) in enumerate([(0.2, 70, 8), (0.27, 110, 6), (0.34, 90, 4)]):
-    t = obj("OrbRing%d" % k, lambda: bpy.ops.mesh.primitive_torus_add(major_radius=rad, minor_radius=0.004, major_segments=128, minor_segments=12), emis("OrbRing%d" % k, (0.6, 0.85, 1, 1), st), (0, 0, 1.55))
+    t = obj("OrbRing%d" % k, lambda: bpy.ops.mesh.primitive_torus_add(major_radius=rad, minor_radius=0.004, major_segments=128, minor_segments=12), emis("OrbRing%d" % k, (0.6, 0.85, 1, 1), st), (0, 0, ORB_Z))
     t.rotation_euler = (math.radians(tilt), math.radians(k * 35), 0)
 for k in range(5):
     rad = 0.35 + k * 0.32
@@ -234,13 +242,13 @@ def light(name, typ, loc, energy, col, size=1.0):
 light("Key", "AREA", (-2.5, -3.5, 4.5), 450, (0.85, 0.9, 1), 3)
 light("Rim", "AREA", (2.5, 4.5, 5.0), 350, (0.55, 0.45, 1), 4)
 light("Top", "AREA", (0, 0, 4.2), 160, (0.8, 0.9, 1), 2.5)
-light("OrbLight", "POINT", (0, 0, 1.55), 60, (0.6, 0.85, 1))
+light("OrbLight", "POINT", (0, 0, ORB_Z), 60, (0.6, 0.85, 1))
 
 cd = bpy.data.cameras.new("Cam")
-cd.lens = 30
+cd.lens = 28
 cam = bpy.data.objects.new("Cam", cd)
 sc.collection.objects.link(cam)
-cam.location = (0.0, -4.5, 2.85)
+cam.location = (0.0, -5.0, 3.0)
 tgt = Vector((0, 0.45, 0.9))
 cam.rotation_euler = (tgt - cam.location).to_track_quat("-Z", "Y").to_euler()
 sc.camera = cam

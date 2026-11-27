@@ -80,7 +80,7 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
    - It still has a copied `addons/synthkit`, synced by script. Also move Beacon Field's browser instruments (`web/src/synths.js`, Web Audio rewrites of the original six, without Prism) into SynthKit.
    - Handed to a MusicBeaconXR session on 2026-11-25 with a brief (`D:\SterlingsLab\JamSyncXR\MusicBeaconXR-SynthKit-brief.md`): Godot onto the submodule first, then a proposal for the browser.
    - `D:\SynthKit`: local `master` tracks GitHub `main` and is at `a37098c`. Its 56 factory preset files show as changed, but only in line endings.
-4. **Hero image**: the title (JamSyncXR, SEVEN BUILT-IN SYNTHS) was re-rendered 2026-11-27. The 3D scene still shows six players and instruments (no Prism); re-rendering it needs `make_hero.py` in Blender, then `add_title.py`.
+4. **Hero image**: done 2026-11-27. Re-rendered with all seven instruments (Prism added) and the JamSyncXR title. To redo it: `blender -b --python assets/instruments/source/make_hero.py -- final docs/images/hero_1920x1080.png` (about 3 minutes on the GPU), then `python assets/instruments/source/add_title.py`.
 5. **Website session** (Sterling's Lab site): it asked for app info, which was sent. The app has no public build. The manual's GitHub URL exists, but the user hasn't said to give it to the site yet.
 
 ## Waiting on the user or the headset
@@ -94,7 +94,7 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
 - **Saved jams:** new `session.json` files say `"app": "JamSyncXR"`; files saying `"AudioSyncMaster"` still load (`JamRecorder.APP_NAMES`).
 - **APKs:** `build/android/JamSyncXR.apk` (flat), `JamSyncXR-AndroidXR.apk`, `JamSyncXR-Quest.apk`.
 - **App icon:** `assets/icon/` (SVG sources; `tools/make_icon.gd` renders the PNGs and `icon.ico`). It's set as the project icon, the Android launcher and adaptive icons, and the Windows exe icon.
-- Hero image title re-rendered with Pillow 13.0.0, now installed on music-machine (`pip install --user pillow`).
+- Hero image re-rendered with seven players and the new title. Pillow 13.0.0 is now installed on music-machine (`pip install --user pillow`).
 
 ## XR and Android builds (2026-11-26)
 - **Addons:** OpenXR Vendors 5.2.0 and godot-xr-tools 4.5.2 (the latest releases). XR Tools 4.5.2's code was already here; `player_body.gd` keeps this project's fixes, which upstream lacks.
