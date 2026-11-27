@@ -29,6 +29,10 @@ const DEFAULTS := {
 var _cfg := ConfigFile.new()
 
 
+func _init() -> void:
+	UserDataMove.run() # first start after the rename: bring the AudioSyncMaster folder's data over
+
+
 func _ready() -> void:
 	_cfg.load(PATH)
 

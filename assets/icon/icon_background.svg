@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024">
+<defs>
+  <radialGradient id="bg" cx="512" cy="430" r="720" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#4a22a0"/><stop offset="0.55" stop-color="#1a0f42"/><stop offset="1" stop-color="#07061a"/>
+  </radialGradient>
+  <linearGradient id="neon" x1="172" y1="0" x2="852" y2="0" gradientUnits="userSpaceOnUse">
+    <stop offset="0" stop-color="#3ef0ff"/><stop offset="0.5" stop-color="#9d8cff"/><stop offset="1" stop-color="#ff4fd8"/>
+  </linearGradient>
+  <filter id="blur" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="22"/></filter>
+</defs>
+<rect width="1024" height="1024" fill="url(#bg)"/>
+</svg>

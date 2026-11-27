@@ -5,15 +5,15 @@ else is built and tested on Windows first. Add to this list whenever a step
 is skipped because no headset is available.
 
 ## When the Aura is connected
-1. **Install the flat Android build** (`build/android/AudioSyncMaster.apk`, `adb install -r`), play each instrument from the on-screen keys, and read the **DSP %** in the top bar for every instrument with a full chord held. The Windows debug build uses 0.4–1.6 % of one core; the Aura's puck should stay under ~10 %.
+1. **Install the flat Android build** (`build/android/JamSyncXR.apk`, `adb install -r`), play each instrument from the on-screen keys, and read the **DSP %** in the top bar for every instrument with a full chord held. The Windows debug build uses 0.4–1.6 % of one core; the Aura's puck should stay under ~10 %.
 2. **Measure Godot's audio output latency on Android** (`AudioServer.get_output_latency()` and a loopback/click test). If it's well above ~20 ms, start the native AAudio/Oboe output path (DESIGN.md, "Engine integration").
 3. **USB MIDI on the puck**: plug in a keyboard (direct cable/OTG, not through a charger hub). The ChordMasterMidi Android plugin should list it automatically.
 4. **Bluetooth LE MIDI**: pair a BLE MIDI keyboard, then press **MIDI… → Scan for Bluetooth MIDI**. Accept the Bluetooth permission prompt.
 5. **Wi-Fi MIDI relay**: laptop sends (`net_send`), headset receives (on by default on Android). Ports 47820/47821 UDP.
 
 ## First runs of the XR builds (2026-11-26)
-- **Quest**: `tools\export_android.ps1 Quest`, then `adb install -r -g build\android\AudioSyncMasterQuest.apk`. Check that it starts in the headset (not as a flat window), hand tracking and passthrough work, and the permission prompts appear. It's a new package (`com.shivoostudios.jamsyncxr.quest`).
-- **Aura**: `tools\export_android.ps1 "Android XR"`, then install `build\android\AudioSyncMasterXR.apk`. The package is now `com.shivoostudios.jamsyncxr.xr`, so it installs next to an older `...audiosyncmaster.xr` build instead of replacing it; uninstall the old one.
+- **Quest**: `tools\export_android.ps1 Quest`, then `adb install -r -g build\android\JamSyncXR-Quest.apk`. Check that it starts in the headset (not as a flat window), hand tracking and passthrough work, and the permission prompts appear. It's a new package (`com.shivoostudios.jamsyncxr.quest`).
+- **Aura**: `tools\export_android.ps1 "Android XR"`, then install `build\android\JamSyncXR-AndroidXR.apk`. The package is now `com.shivoostudios.jamsyncxr.xr`, so it installs next to an older `...audiosyncmaster.xr` build instead of replacing it; uninstall the old one.
 - Both build and are signed on music-machine; neither has run on a device since the OpenXR Vendors 5.2.0 update.
 
 ## Networking on the headset (M4 leftovers)

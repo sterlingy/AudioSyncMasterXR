@@ -1,6 +1,6 @@
 class_name NetMidiLink
 extends Node
-## Wi-Fi MIDI relay between AudioSyncMaster instances on the same network.
+## Wi-Fi MIDI relay between JamSyncXR instances on the same network.
 ##
 ## Sender (usually the laptop with the keyboards): forwards every MIDI
 ## channel message to the receivers it knows about, or a typed-in IP.
@@ -223,7 +223,7 @@ func _update_status() -> void:
 	if sending:
 		var t := _target_ips()
 		if t.is_empty():
-			parts.append("Sending: looking for a headset… (run AudioSyncMaster on it with 'Receive' on; same Wi-Fi network)")
+			parts.append("Sending: looking for a headset… (run JamSyncXR on it with 'Receive' on; same Wi-Fi network)")
 		else:
 			var names := []
 			for ip in t:

@@ -37,7 +37,7 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
 ```
 - music-machine's PowerShell blocks script files, so run scripts with `-ExecutionPolicy Bypass`.
 - On a fresh checkout, import first (`Godot --headless --path . --import`) or the tests can't resolve class names.
-- Expect **75/75** GUT tests and **PASS** from the session test.
+- Expect **79/79** GUT tests and **PASS** from the session test.
 
 ## State of the project
 - **Done on Windows:**
@@ -80,21 +80,29 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
    - It still has a copied `addons/synthkit`, synced by script. Also move Beacon Field's browser instruments (`web/src/synths.js`, Web Audio rewrites of the original six, without Prism) into SynthKit.
    - Handed to a MusicBeaconXR session on 2026-11-25 with a brief (`D:\SterlingsLab\JamSyncXR\MusicBeaconXR-SynthKit-brief.md`): Godot onto the submodule first, then a proposal for the browser.
    - `D:\SynthKit`: local `master` tracks GitHub `main` and is at `a37098c`. Its 56 factory preset files show as changed, but only in line endings.
-4. **Hero image text** says "SIX BUILT-IN SYNTHS". It's seven now. Edit `FEATURES` in `add_title.py` and rerun it.
+4. **Hero image text**: `add_title.py` is updated (JamSyncXR, SEVEN BUILT-IN SYNTHS); rerun it once Pillow is installed (`pip install pillow`).
 5. **Website session** (Sterling's Lab site): it asked for app info, which was sent. The app has no public build. The manual's GitHub URL exists, but the user hasn't said to give it to the site yet.
 
 ## Waiting on the user or the headset
 - Feedback in the headset on the sideways knobs and labels, and installing the latest XR build, which has SynthKit and Prism. Ask the user to wake the headset. `tools\export_android.ps1 "Android XR"` (Galaxy XR, Aura) or `tools\export_android.ps1 Quest`, then `adb install -r -g`. See `docs/TODO-headset.md`, "First runs of the XR builds".
+- Where the connection server runs (`server/asm_server.py`, UDP 47900). A relay for strict NATs isn't built.
+- A buffer test with real sound cards on two machines. See `docs/TODO-headset.md`.
+
+## Renamed to JamSyncXR (2026-11-27)
+- The app, window title, Android labels, exe and APK names, UI text, manual and server messages say JamSyncXR. The repo (`AudioSyncMasterXR`), the folders and the `server/asm_server.py` filename are unchanged.
+- **Desktop data:** Godot names the user folder after the project, so it moved from `%APPDATA%\Godot\app_userdata\AudioSyncMaster` to `...\JamSyncXR`. `scripts/autoload/user_data_move.gd` copies the old folder over once, on the first start (Settings calls it before loading). The old folder stays as a backup. Done on music-machine (37 files); Roogna's copy happens the first time it runs the new version.
+- **Saved jams:** new `session.json` files say `"app": "JamSyncXR"`; files saying `"AudioSyncMaster"` still load (`JamRecorder.APP_NAMES`).
+- **APKs:** `build/android/JamSyncXR.apk` (flat), `JamSyncXR-AndroidXR.apk`, `JamSyncXR-Quest.apk`.
+- **App icon:** `assets/icon/` (SVG sources; `tools/make_icon.gd` renders the PNGs and `icon.ico`). It's set as the project icon, the Android launcher and adaptive icons, and the Windows exe icon.
+- Hero image: `add_title.py` now says JamSyncXR and SEVEN BUILT-IN SYNTHS, but the image hasn't been re-rendered: it needs Pillow (`pip install pillow`), which isn't installed on music-machine.
 
 ## XR and Android builds (2026-11-26)
 - **Addons:** OpenXR Vendors 5.2.0 and godot-xr-tools 4.5.2 (the latest releases). XR Tools 4.5.2's code was already here; `player_body.gd` keeps this project's fixes, which upstream lacks.
 - **Android binaries are committed:** `.gitignore` had `android/`, which also hid `addons/godotopenxrvendors/.bin/android/`, so a fresh clone couldn't export for a headset. It's now `/android/`.
-- **Package IDs** are `com.shivoostudios.jamsyncxr` (flat), `.xr` (Android XR) and `.quest` (Quest). They were `com.shivoostudios.audiosyncmaster...`; headsets treat the new ones as new apps. Display names still say AudioSyncMaster.
+- **Package IDs** are `com.shivoostudios.jamsyncxr` (flat), `.xr` (Android XR) and `.quest` (Quest). They were `com.shivoostudios.audiosyncmaster...`; headsets treat the new ones as new apps.
 - **Quest preset:** the Meta loader in place of Android XR's, with the same project and scene, since everything is OpenXR. No Meta/Quest SDK is needed. One APK per headset family, because each expects its own manifest.
 - **Built on music-machine:** debug APKs for Quest and Android XR, signed, with the expected manifests. Neither has run on a device yet.
-- **Known:** Godot exits with 0xC0000005 after the GUT run (the tests pass first), with both the old and new addons. Exports warn that no project icon is set.
-- Where the connection server runs (`server/asm_server.py`, UDP 47900). A relay for strict NATs isn't built.
-- A buffer test with real sound cards on two machines. See `docs/TODO-headset.md`.
+- **Known:** Godot exits with 0xC0000005 after the GUT run (the tests pass first), with both the old and new addons.
 
 ## Two-machine tests
 - **Addresses (ZeroTier):** music-machine is 10.241.70.124 and Roogna is 10.241.111.150.

@@ -60,7 +60,7 @@ func _ready() -> void:
 	box.add_child(HSeparator.new())
 	box.add_child(_heading("WI-FI MIDI RELAY (laptop keyboard → headset)"))
 	var send := CheckBox.new()
-	send.text = "Send this computer's MIDI to another AudioSyncMaster"
+	send.text = "Send this computer's MIDI to another JamSyncXR"
 	send.button_pressed = bool(Settings.get_value("net_send"))
 	send.toggled.connect(func(on): Settings.set_value("net_send", on))
 	box.add_child(send)
@@ -75,7 +75,7 @@ func _ready() -> void:
 	target.text_changed.connect(func(t): Settings.set_value("net_target", t.strip_edges()))
 	trow.add_child(target)
 	var recv := CheckBox.new()
-	recv.text = "Receive MIDI sent from another AudioSyncMaster"
+	recv.text = "Receive MIDI sent from another JamSyncXR"
 	var rx = Settings.get_value("net_receive")
 	recv.button_pressed = OS.has_feature("android") if rx == null else bool(rx)
 	recv.toggled.connect(func(on): Settings.set_value("net_receive", on))

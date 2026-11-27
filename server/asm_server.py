@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""AudioSyncMaster connection server: rooms and public addresses.
+"""JamSyncXR connection server: rooms and public addresses.
 
 Players behind home routers can't be reached at their own IP. This server
 lets them find each other and open direct paths (UDP hole punching):
@@ -159,7 +159,7 @@ def serve(port, bind=""):
     sock.bind((bind, port))
     sock.settimeout(1.0)
     srv = Server()
-    print("AudioSyncMaster connection server on UDP %s:%d" % (bind or "*", port), flush=True)
+    print("JamSyncXR connection server on UDP %s:%d" % (bind or "*", port), flush=True)
     last_expire = time.monotonic()
     while True:
         try:

@@ -18,7 +18,7 @@ it running, a systemd unit like this works:
 
 ```
 [Unit]
-Description=AudioSyncMaster connection server
+Description=JamSyncXR connection server
 After=network.target
 
 [Service]

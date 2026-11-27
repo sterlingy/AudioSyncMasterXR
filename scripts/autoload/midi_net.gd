@@ -1,7 +1,7 @@
 extends Node
 ## This app's MIDI around SynthKit's `Midi` autoload: applies the saved MIDI
 ## settings (input channel, computer-keyboard play and velocity) and runs the
-## Wi-Fi MIDI relay (NetMidiLink) to another AudioSyncMaster, e.g. a laptop
+## Wi-Fi MIDI relay (NetMidiLink) to another JamSyncXR, e.g. a laptop
 ## keyboard playing the headset. Autoloaded as `MidiNet`, after Settings and Midi.
 
 signal net_status(text: String)

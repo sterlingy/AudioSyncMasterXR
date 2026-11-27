@@ -1,12 +1,12 @@
-# AudioSyncMaster User Manual
+# JamSyncXR User Manual
 
 *Jam together in XR, wherever you are.*
 
-![AudioSyncMaster](images/hero_1920x1080.jpg)
+![JamSyncXR](images/hero_1920x1080.jpg)
 
-AudioSyncMaster lets musicians in different places play together live. You see the other players as avatars and hear everyone in time, with each player's sound coming from where they stand. Play your voice or a real instrument through a mic or audio interface, or one of seven built-in synths. Add step sequencers and loopers, plus a shared master looper and one metronome for everyone.
+JamSyncXR (formerly AudioSyncMaster) lets musicians in different places play together live. You see the other players as avatars and hear everyone in time, with each player's sound coming from where they stand. Play your voice or a real instrument through a mic or audio interface, or one of seven built-in synths. Add step sequencers and loopers, plus a shared master looper and one metronome for everyone.
 
-> **Early preview.** AudioSyncMaster is in development. The desktop version (Windows) is complete; the headset version is a first pass, and online play needs a connection server that isn't hosted publicly yet. This manual describes the app as it is today.
+> **Early preview.** JamSyncXR is in development. The desktop version (Windows) is complete; the headset version is a first pass, and online play needs a connection server that isn't hosted publicly yet. This manual describes the app as it is today.
 
 ## Contents
 1. [What you need](#1-what-you-need)
@@ -39,7 +39,7 @@ AudioSyncMaster lets musicians in different places play together live. You see t
 | **For your voice or a real instrument** | A microphone, or an audio interface with direct monitoring. |
 | **To jam with others** | The same local network (LAN or Wi-Fi), or the internet through a connection server (see [Jamming online](#jamming-online)). For headsets: Wi-Fi 6 on 5 GHz, with the router in the same room. |
 
-The app isn't available in a browser: browsers can't send audio the way AudioSyncMaster needs (direct, low-delay UDP between players).
+The app isn't available in a browser: browsers can't send audio the way JamSyncXR needs (direct, low-delay UDP between players).
 
 ---
 
@@ -291,8 +291,8 @@ Press **MIDI…** in the top bar.
 - **Play with the computer keyboard** turns the A–L key playing on or off.
 
 **Wi-Fi MIDI relay.** This plays a headset's instrument from a laptop's keyboard:
-1. On the laptop, tick **Send this computer's MIDI to another AudioSyncMaster**. Leave the address empty to find the headset automatically, or type its IP.
-2. On the headset, tick **Receive MIDI sent from another AudioSyncMaster**. It's on by default on Android.
+1. On the laptop, tick **Send this computer's MIDI to another JamSyncXR**. Leave the address empty to find the headset automatically, or type its IP.
+2. On the headset, tick **Receive MIDI sent from another JamSyncXR**. It's on by default on Android.
 
 **MIDI Learn**
 1. Right-click any knob and choose **MIDI Learn**.

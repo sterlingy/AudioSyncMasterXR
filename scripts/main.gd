@@ -124,7 +124,7 @@ func _build_top_bar() -> Control:
 	bar.add_theme_constant_override("h_separation", 8)
 	bar.add_theme_constant_override("v_separation", 6)
 	var title := Label.new()
-	title.text = "AudioSyncMaster"
+	title.text = "JamSyncXR"
 	title.add_theme_font_size_override("font_size", 18)
 	bar.add_child(title)
 	bar.add_child(VSeparator.new())

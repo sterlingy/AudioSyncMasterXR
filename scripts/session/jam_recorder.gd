@@ -17,6 +17,9 @@ extends Node
 signal state_changed(recording: bool)
 signal saved(dir: String)
 
+## The "app" stamp in session.json. Sessions saved before the rename say "AudioSyncMaster".
+const APP_NAME := "JamSyncXR"
+const APP_NAMES := ["JamSyncXR", "AudioSyncMaster"]
 const PPQ := 480
 
 var recording := false
@@ -342,7 +345,7 @@ func save_session(path: String) -> void:
 			write_wav_mono(base + file, l.clips[i].samples, int(l.clips[i].rate))
 			d.clips.append({"file": file, "at": l.clips[i].get("at", 0.0)})
 		master.append(d)
-	var data := {"format": 1, "app": "AudioSyncMaster", "saved": Time.get_datetime_string_from_system(),
+	var data := {"format": 1, "app": APP_NAME, "saved": Time.get_datetime_string_from_system(),
 		"bpm": Transport.bpm, "beats_per_bar": Transport.beats_per_bar,
 		"quantize": {"enabled": Transport.quantize_enabled, "grid": Transport.quantize_grid},
 		"players": players, "master": master}
@@ -357,8 +360,8 @@ func save_session(path: String) -> void:
 static func load_session(path: String, player_index := 0) -> String:
 	var text := FileAccess.get_file_as_string(path)
 	var data: Variant = JSON.parse_string(text)
-	if typeof(data) != TYPE_DICTIONARY or data.get("app", "") != "AudioSyncMaster":
-		return "That isn't an AudioSyncMaster session file."
+	if typeof(data) != TYPE_DICTIONARY or not data.get("app", "") in APP_NAMES:
+		return "That isn't a JamSyncXR session file."
 	var base := path.get_base_dir() + "/"
 	Transport.set_tempo(float(data.get("bpm", Transport.bpm)))
 	Transport.set_beats_per_bar(int(data.get("beats_per_bar", Transport.beats_per_bar)))

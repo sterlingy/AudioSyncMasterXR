@@ -1,4 +1,6 @@
-# AudioSyncMaster
+# JamSyncXR
+
+Formerly AudioSyncMaster. The GitHub repo is still `AudioSyncMasterXR`, and the folders are still `D:\AudioSyncMaster` (music-machine) and `D:\Godot_Projects\AudioSyncMaster` (Roogna). The app icon's sources are `assets/icon/*.svg`; `godot --headless --path . -s res://tools/make_icon.gd` renders the PNGs and `icon.ico`.
 
 Multiplayer XR jam sessions: remote musicians hear each other in sync with spatial audio, play real instruments or seven built-in synths, with sequencers, loopers and a shared metronome. See `DESIGN.md` for the full plan and `CLAUDE.md` for working rules.
 
@@ -20,9 +22,9 @@ Godot 4.7.2 (GL Compatibility). The instruments come from **SynthKit** (`D:\Godo
 
   | Preset | For | APK | Package |
   |---|---|---|---|
-  | Android (flat) | phones, tablets | `build/android/AudioSyncMaster.apk` | `com.shivoostudios.jamsyncxr` |
-  | Android XR | Galaxy XR, XREAL Aura | `build/android/AudioSyncMasterXR.apk` | `com.shivoostudios.jamsyncxr.xr` |
-  | Quest | Quest 2, 3, 3S, Pro | `build/android/AudioSyncMasterQuest.apk` | `com.shivoostudios.jamsyncxr.quest` |
+  | Android (flat) | phones, tablets | `build/android/JamSyncXR.apk` | `com.shivoostudios.jamsyncxr` |
+  | Android XR | Galaxy XR, XREAL Aura | `build/android/JamSyncXR-AndroidXR.apk` | `com.shivoostudios.jamsyncxr.xr` |
+  | Quest | Quest 2, 3, 3S, Pro | `build/android/JamSyncXR-Quest.apk` | `com.shivoostudios.jamsyncxr.quest` |
 
   The two XR builds are the same project and XR scene, all OpenXR. They differ only in the OpenXR Vendors loader and Android settings each headset expects, so each headset gets its own APK. The XR build runs on Galaxy XR; the Quest and Aura builds are not yet tested on a device.
 - Headset steps wait in `docs/TODO-headset.md`.

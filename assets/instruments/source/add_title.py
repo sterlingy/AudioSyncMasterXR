@@ -6,9 +6,9 @@ SRC = "docs/images/hero_1920x1080.png"
 OUT = "docs/images/hero_1920x1080_title"
 FONT = r"C:\Windows\Fonts\bahnschrift.ttf"
 
-TITLE = "AudioSyncMaster"
+TITLE = "JamSyncXR"
 TAGLINE = "Jam together in XR, wherever you are."
-FEATURES = "SIX BUILT-IN SYNTHS   \u2022   SPATIAL AUDIO   \u2022   EVERY PLAYER IN TIME"
+FEATURES = "SEVEN BUILT-IN SYNTHS   \u2022   SPATIAL AUDIO   \u2022   EVERY PLAYER IN TIME"
 
 
 def font(size, style):

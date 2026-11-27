@@ -199,7 +199,7 @@ func _open_load() -> void:
 	var fd := FileDialog.new()
 	fd.file_mode = FileDialog.FILE_MODE_OPEN_FILE
 	fd.access = FileDialog.ACCESS_FILESYSTEM
-	fd.filters = PackedStringArray(["session.json ; AudioSyncMaster session"])
+	fd.filters = PackedStringArray(["session.json ; JamSyncXR session"])
 	DirAccess.make_dir_recursive_absolute("user://jams")
 	fd.current_dir = ProjectSettings.globalize_path("user://jams")
 	fd.size = Vector2i(900, 600)

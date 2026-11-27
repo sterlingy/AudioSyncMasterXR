@@ -1,7 +1,7 @@
 # Builds an Android APK from an export preset, headless.
-#   tools\export_android.ps1 Quest                 Quest (Meta OpenXR loader)       -> build\android\AudioSyncMasterQuest.apk
-#   tools\export_android.ps1 "Android XR"          Android XR, e.g. Aura           -> build\android\AudioSyncMasterXR.apk
-#   tools\export_android.ps1 "Android (flat)"      phones and tablets               -> build\android\AudioSyncMaster.apk
+#   tools\export_android.ps1 Quest                 Quest (Meta OpenXR loader)       -> build\android\JamSyncXR-Quest.apk
+#   tools\export_android.ps1 "Android XR"          Android XR, e.g. Aura           -> build\android\JamSyncXR-AndroidXR.apk
+#   tools\export_android.ps1 "Android (flat)"      phones and tablets               -> build\android\JamSyncXR.apk
 #   tools\export_android.ps1 Quest -Release        release build (needs the release keystore in Editor Settings)
 # Installs the Android build template into android\ on first use (the presets use Gradle builds).
 # Needs: Godot 4.7.2 and its export templates, and the Android SDK, JDK and debug keystore set in Editor Settings.
