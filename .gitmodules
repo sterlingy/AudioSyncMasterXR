@@ -2,3 +2,7 @@
 	path = addons/synthkit
 	url = https://github.com/sterlingy/SynthKit.git
 	branch = main
+[submodule "addons/music_input_kit"]
+	path = addons/music_input_kit
+	url = https://github.com/sterlingy/MusicInputKit.git
+	branch = main

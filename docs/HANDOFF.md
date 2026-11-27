@@ -8,6 +8,7 @@ Written 2026-11-25 on Roogna (the main dev PC) so work can carry on from **music
 |---|---|---|---|
 | **AudioSyncMaster** (this project) | github.com/sterlingy/AudioSyncMasterXR (public, `main`) | `D:\AudioSyncMaster` | `D:\Godot_Projects\AudioSyncMaster` |
 | **SynthKit** (shared instruments) | github.com/sterlingy/SynthKit (private, `main`) | `D:\SynthKit` (own clone) and the `addons\synthkit` submodule | `D:\Godot_Projects\SynthKit` and the submodule |
+| **MusicInputKit** (playable 3D objects) | github.com/sterlingy/MusicInputKit (private, `main`) | `D:\MusicInputKit` (own clone) and the `addons\music_input_kit` submodule | submodule only |
 | **MusicBeaconXR** (Beacon Field) | github.com/sterlingy/MusicBeaconXR (public; web on Pages) | `D:\MusicBeaconXR` | not cloned |
 | **ChordMasterXR** | GitLab (shivoostudios, `origin`) + github.com/sterlingy/ChordMasterXR (`github`) | `D:\ChordMasterXR` | `D:\Godot_Projects\ChordMasterXR` |
 
@@ -37,7 +38,7 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
 ```
 - music-machine's PowerShell blocks script files, so run scripts with `-ExecutionPolicy Bypass`.
 - On a fresh checkout, import first (`Godot --headless --path . --import`) or the tests can't resolve class names.
-- Expect **79/79** GUT tests and **PASS** from the session test.
+- Expect **81/81** GUT tests and **PASS** from the session test.
 
 ## State of the project
 - **Done on Windows:**
@@ -87,6 +88,12 @@ C:\Godot\Godot_v4.7.2-stable_win64_console.exe --headless --path . -s res://test
 - Feedback in the headset on the sideways knobs and labels, and installing the latest XR build, which has SynthKit and Prism. Ask the user to wake the headset. `tools\export_android.ps1 "Android XR"` (Galaxy XR, Aura) or `tools\export_android.ps1 Quest`, then `adb install -r -g`. See `docs/TODO-headset.md`, "First runs of the XR builds".
 - Where the connection server runs (`server/asm_server.py`, UDP 47900). A relay for strict NATs isn't built.
 - A buffer test with real sound cards on two machines. See `docs/TODO-headset.md`.
+
+## MusicInputKit as a shared submodule (2026-11-27)
+- MusicBeaconXR's `addons/music_input_kit` was split out with its history into github.com/sterlingy/MusicInputKit (private), cloned at `D:\MusicInputKit`. It's a submodule in both projects, like SynthKit.
+- **Here:** added at `addons/music_input_kit` (tracks `main`; `tools/update_music_input_kit.ps1`). Not wired into the app: `hand_player.gd` still plays the 3D instruments. `tests/test_music_input_kit.gd` checks the kit loads and sends notes. Using it would mean a bridge from `MusicInput`'s `note_on`/`note_off`/`control` to `Midi.inject_*` and the rig's parameters, like MusicBeaconXR's `scripts/play/synth_bridge.gd`.
+- **MusicBeaconXR:** done in a separate worktree, `D:\MusicBeaconXR-mik`, on branch `music-input-kit-submodule` (commit `b3479ee`, from `origin/main` `3be5fb4`), so the checkout at `D:\MusicBeaconXR` wasn't touched. Its Godot checks and 116 web tests pass. After it reaches `main`, `D:\MusicBeaconXR` needs `git submodule update --init` (its `addons\music_input_kit` folder becomes the submodule).
+- MusicBeaconXR pins SynthKit `5e78138` ("Windows release build with the Sampler"), newer than this project's `a37098c`.
 
 ## Renamed to JamSyncXR (2026-11-27)
 - The app, window title, Android labels, exe and APK names, UI text, manual and server messages say JamSyncXR. The repo (`AudioSyncMasterXR`), the folders and the `server/asm_server.py` filename are unchanged.

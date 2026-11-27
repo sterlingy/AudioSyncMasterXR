@@ -168,6 +168,7 @@ Built on Windows desktop first; headset steps run once a headset is connected. B
 9. **M9: Interval mode, Android flat app, SFU for larger groups.**
 
 ## Decisions log
+- 2026-11-27 (MusicInputKit): MusicBeaconXR's playable 3D objects became their own repo (github.com/sterlingy/MusicInputKit, private) and a submodule at `addons/music_input_kit` in both projects, like SynthKit. Here it's available but not wired in yet.
 - 2026-11-27 (name): The app is called JamSyncXR (window, Android labels, APK and exe names, UI, manual). The repo stays `AudioSyncMasterXR`. Desktop user data moves with the name; `UserDataMove` copies the old `AudioSyncMaster` folder once. Old `session.json` files still load. The app has its own icon (`assets/icon`).
 - 2026-11-26 (headsets): One project and one XR scene for every headset, all OpenXR. Each headset family gets its own APK because each expects its own manifest and loader: "Android XR" (Galaxy XR, Aura) and "Quest" (Meta loader; no Meta SDK). Packages `com.shivoostudios.jamsyncxr[.xr|.quest]`. OpenXR Vendors 5.2.0 and its Android binaries are committed.
 - 2026-11-23 (SynthKit): The instruments became a shared addon, SynthKit (`D:\Godot_Projects\SynthKit`), as first done in MusicBeaconXR: engine source and binaries, rig, sequencer, presets, clock, MIDI input and panels. This app keeps sessions, looper (via `InstrumentRig.looper_factory`), recording, XR and the Wi-Fi MIDI relay (`MidiNet`). Projects sync the addon with a script (no git remotes, so no submodules).

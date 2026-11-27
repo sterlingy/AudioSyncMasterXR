@@ -61,7 +61,7 @@ Two instances on one PC: `godot --path . -- --host --name=A` and `godot --path .
    ```powershell
    git submodule update --init
    ```
-   `tools\update_synthkit.ps1` moves to SynthKit's latest version.
+   `tools\update_synthkit.ps1` moves to SynthKit's latest version. The same `git submodule update --init` also fetches MusicInputKit (`addons/music_input_kit`: playable 3D objects shared with MusicBeaconXR, not wired into the app yet); `tools\update_music_input_kit.ps1` moves it to its latest version.
 2. Open the project in Godot 4.7.2 and press F5, or run it from the command line.
 
 Playing: MIDI keyboard/controller, or the computer keyboard (A–L white keys, W E T Y U O P black keys, Z/X octave, C/V velocity), or click the on-screen keys. Right-click any knob → **MIDI Learn**, then move a controller knob.
